@@ -1,0 +1,12 @@
+
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+dist-native/
+.expo/
+coverage/
+playwright-report/
+test-results/
+.local/

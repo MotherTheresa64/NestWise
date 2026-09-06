@@ -1,0 +1,3 @@
+{
+ "expo": { "name": "NestWise", "slug": "nestwise", "scheme": "nestwise", "version": "0.1.0", "orientation": "default", "userInterfaceStyle": "automatic", "plugins": ["expo-router", "expo-secure-store"], "web": { "bundler": "metro", "output": "single" }, "ios": { "supportsTablet": true, "bundleIdentifier": "app.nestwise.care" }, "android": { "package": "app.nestwise.care" } }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "nestwise",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:api": "npm run dev -w @nestwise/api",
+    "dev:web": "npm run web -w @nestwise/app",
+    "dev:mobile": "npm run start -w @nestwise/app",
+    "db:migrate": "npm run db:migrate -w @nestwise/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "build:api": "npm run build -w @nestwise/api",
+    "build:web": "npm run build -w @nestwise/app",
+    "test:e2e": "playwright test"
+  },
+  "overrides": { "tsup": { "esbuild": "^0.28.2" } },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^22.19.0",
+    "eslint": "^9.39.0",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^3.2.4"
+  }
+}
