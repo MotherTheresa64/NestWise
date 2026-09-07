@@ -1,8 +1,8 @@
 # NestWise
 
-An Expo / React Native family-care app with a TypeScript Fastify API and PostgreSQL. This repository is a working development milestone, **not ready for production family health data**. See the [current realtime milestone](docs/realtime-milestone.md) for verified features and release gaps, and [the initial foundation audit](docs/implementation-status.md) for history.
+An Expo / React Native family-care app with a TypeScript Fastify API and PostgreSQL. This repository is a working development milestone, **not ready for production family health data**. See the [current product milestone](docs/product-milestone.md) for verified features and release gaps, and [the initial foundation audit](docs/implementation-status.md) for history.
 
-Current care updates use authorized WebSockets and PostgreSQL-backed incremental sync. Run migrations before starting the new API. The existing offline mutation queue and version conflicts remain in use. Editing, child archiving, recurring/snoozed reminders, session/membership safety controls and local backups are available. Native notification scheduling requires opt-in and device verification; email delivery is not configured.
+Current care updates use authorized WebSockets and PostgreSQL-backed incremental sync. Run migrations before starting the new API. The existing offline mutation queue and version conflicts remain in use. Editing, child archiving, recurring/snoozed reminders, session/membership safety controls and local backups are available. Reports/PDF export, expanded local phrase parsing and routine estimates, account/privacy flows, and native cache encryption are now implemented. Native capabilities still require device verification; email delivery is not configured.
 
 ## Run locally
 
@@ -25,7 +25,7 @@ In another terminal:
 npm run dev:web
 ```
 
-Open http://localhost:8081, create an account, create a household, then add children. No demo records or fabricated charts are inserted. Invite another registered account from Household by privately sharing the generated token.
+Open http://localhost:8081, create an account, create a household, then add children. No demo records are inserted automatically. Optionally run `node --env-file=.env scripts/seed-fictional.mjs` against the local development API for a clearly fictional household. Invite caregivers by privately sharing the generated invitation link.
 
 For iOS/Android, run `npm run dev:mobile`. Set `EXPO_PUBLIC_API_URL` in the shell or `apps/app/.env` to an API address the device can reach; `localhost` on a phone points to that phone. Set API `HOST` and the development network firewall appropriately. The root `.env` is loaded by the API; Expo loads the app directory's environment. Native runtime testing requires a device/simulator and remains outstanding.
 

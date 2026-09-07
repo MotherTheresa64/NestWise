@@ -1,0 +1,46 @@
+import { test, expect } from '@playwright/test';
+test('natural-language review, server export, deletion safeguards and unavailable recovery',async({page,request})=>{
+ const password='fictional private passphrase';
+ const auth=(await request.post('http://localhost:3001/auth/register',{data:{name:'Privacy parent',email:`privacy-${Date.now()}@test.example`,password}})).json();
+ const session=await auth;const headers={Authorization:`Bearer ${session.token}`};
+ const h=await (await request.post('http://localhost:3001/households',{headers,data:{name:'Fictional privacy nest',timezone:'UTC'}})).json();
+ await request.post(`http://localhost:3001/households/${h.id}/children`,{headers,data:{firstName:'River',dateOfBirth:'2026-01-01'}});
+ await page.addInitScript(s=>sessionStorage.setItem('nestwise.session',JSON.stringify(s)),session);
+ await page.goto('/');await page.getByRole('button',{name:'Log care',exact:true}).click();
+ await page.getByRole('button',{name:'Choose start / event time',exact:true}).click();
+ const calendar=page.getByRole('dialog',{name:'Choose start / event time',exact:true});await expect(calendar).toBeVisible();await calendar.getByRole('button',{name:'Close',exact:true}).click();
+ await page.getByRole('textbox',{name:'Quick phrase',exact:true}).fill('River: nursed left for 15 minutes; notes: Fictional review test');
+ await page.getByRole('button',{name:'Review phrase',exact:true}).click();
+ await expect(page.getByText('Draft ready to review. Nothing has been saved.',{exact:true})).toBeVisible();
+ expect((await (await request.get(`http://localhost:3001/households/${h.id}/snapshot`,{headers})).json()).events).toHaveLength(0);
+ await page.getByRole('button',{name:'Confirm and save',exact:true}).click();
+ await expect(page.getByText('All up to date',{exact:true})).toBeVisible();
+ await page.goto('/settings');const downloadPromise=page.waitForEvent('download');await page.getByRole('button',{name:'Export all my data',exact:true}).click();const download=await downloadPromise;expect(download.suggestedFilename()).toBe('nestwise-user-data.json');
+ await page.goto('/children');await page.getByRole('button',{name:'Delete River permanently',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Delete child and associated care',exact:true})).toBeDisabled();
+ await page.getByRole('textbox',{name:'Type DELETE CHILD',exact:true}).fill('DELETE CHILD');
+ await page.getByRole('button',{name:'Delete child and associated care',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'River',exact:true})).toHaveCount(0);
+ await page.goto('/settings');await page.getByRole('button',{name:'Delete household permanently',exact:true}).click();await page.getByRole('textbox',{name:'Type DELETE HOUSEHOLD',exact:true}).fill('DELETE HOUSEHOLD');await page.getByRole('button',{name:'Delete household forever',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Create your household',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Delete my account',exact:true}).click();await page.getByRole('textbox',{name:'Current password',exact:true}).fill(password);await page.getByRole('textbox',{name:'Type DELETE ACCOUNT',exact:true}).fill('DELETE ACCOUNT');await page.getByRole('button',{name:'Delete account forever',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Forgot your password?',exact:true}).click();await page.getByRole('textbox',{name:'Account email',exact:true}).fill('unknown@example.test');await page.getByRole('button',{name:'Send recovery instructions',exact:true}).click();await expect(page.getByRole('alert')).toContainText('No message has been sent');
+});
+
+test('an erased offline edit stays reviewable and can be discarded without losing later care',async({page,request})=>{
+ const post=async(path:string,data:unknown,token?:string)=>{const response=await request.post('http://localhost:3001'+path,{data,headers:token?{Authorization:`Bearer ${token}`}:{}});expect(response.ok(),await response.text()).toBeTruthy();return response.json();};
+ const auth=await post('/auth/register',{name:'Queue parent',email:`erase-queue-${Date.now()}@test.example`,password:'fictional private passphrase'});const h=await post('/households',{name:'Fictional queue family',timezone:'UTC'},auth.token);const path=`/households/${h.id}`;
+ const river=await post(path+'/children',{firstName:'River',dateOfBirth:'2026-01-01'},auth.token);const sage=await post(path+'/children',{firstName:'Sage',dateOfBirth:'2026-01-01'},auth.token);
+ const id=crypto.randomUUID();await post(path+'/sync',[{mutationId:crypto.randomUUID(),eventId:id,baseVersion:0,operation:'create',event:{id,childIds:[river.id],category:'bottle',occurredAt:new Date().toISOString(),details:{quantity:120,unit:'ml'}}}],auth.token);
+ await page.addInitScript(s=>sessionStorage.setItem('nestwise.session',JSON.stringify(s)),auth);await page.goto('/timeline');await expect(page.getByText('All up to date',{exact:true})).toBeVisible();
+ await page.route('http://localhost:3001/**',route=>route.abort());
+ await page.getByRole('button',{name:'Edit log',exact:true}).click();await page.getByRole('textbox',{name:'Notes',exact:true}).fill('Held correction to erased care');await page.getByRole('button',{name:'Confirm changes',exact:true}).click();
+ await page.getByRole('button',{name:'Log care',exact:true}).click();await page.getByRole('textbox',{name:'Quick phrase',exact:true}).fill('Sage: wet diaper; notes: Keep this later care');await page.getByRole('button',{name:'Review phrase',exact:true}).click();await page.getByRole('button',{name:'Confirm and save',exact:true}).click();
+ const erased=await request.delete('http://localhost:3001'+path+'/children/'+river.id,{headers:{Authorization:`Bearer ${auth.token}`},data:{confirmation:'DELETE CHILD',baseVersion:1}});expect(erased.ok(),await erased.text()).toBeTruthy();
+ await page.unroute('http://localhost:3001/**');await page.getByRole('link',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Sync now',exact:true}).click();
+ await expect(page.getByText(/2 queued logs/)).toBeVisible();await expect(page.getByText(/Held correction to erased care/)).toBeVisible();
+ await page.getByRole('button',{name:'Discard these pending edits',exact:true}).first().click();await page.getByRole('dialog',{name:'Discard these unsent edits?',exact:true}).getByRole('button',{name:'Discard pending edits',exact:true}).click();
+ await expect(page.getByText(/0 queued logs/)).toBeVisible();
+ const snapshot=await (await request.get('http://localhost:3001'+path+'/snapshot',{headers:{Authorization:`Bearer ${auth.token}`}})).json();expect(snapshot.events).toHaveLength(1);expect(snapshot.events[0].notes).toBe('Keep this later care');expect(snapshot.events[0].childIds).toEqual([sage.id]);
+});

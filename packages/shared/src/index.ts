@@ -1,6 +1,6 @@
 import { z } from 'zod';
 export { predictRoutines, sharedWindow } from './intelligence';
-export { parseLog } from './natural';
+export { parseLog, deterministicParser, type CareLogParser, type LogDraft, type ParseContext } from './natural';
 
 export const categories = ['sleep', 'nursing', 'bottle', 'pumping', 'food', 'water', 'diaper', 'potty', 'medicine', 'temperature', 'symptom', 'growth', 'teeth', 'bath', 'routine', 'milestone', 'custom'] as const;
 export const categorySchema = z.enum(categories);
@@ -134,6 +134,7 @@ export interface Prediction {
   sampleCount: number;
   explanation: string;
   driftMinutes: number | null;
+  typicalDurationMinutes?: number;
 }
 export interface SharedWindow { childIds: string[]; targetAt: string | null; windowStart: string | null; windowEnd: string | null; overlapStrength: number; explanation: string }
 export function ageInMonths(dateOfBirth: string, now = new Date()): number {

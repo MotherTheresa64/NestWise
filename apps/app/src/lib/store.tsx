@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from './care-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import { eventInputSchema, type AuthResponse, type ChangePage, type EventInput, type Household, type MutationResult, type Snapshot, type SyncMutation, type User } from '@nestwise/shared';
@@ -224,6 +224,35 @@ function useNestState() {
     resolveConflict: async (eventId: string) => {
       if (busy.current) throw new Error('Wait for synchronization to finish.');
       await editCache(cache => ({ ...cache, conflicts: cache.conflicts.filter(c => c.mutation.eventId !== eventId), queue: cache.queue.filter(m => m.eventId !== eventId) }));
+    },
+    deleteAccount: async (confirmation: string, password: string) => {
+      if (endingSession.current || busy.current || switching.current) throw new Error('Wait for synchronization to finish.');
+      endingSession.current = true;
+      try {
+        await writes.current;
+        const current = stateRef.current;
+        const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(`nestwise.cache.${current.user!.id}.`));
+        const caches = await AsyncStorage.multiGet(keys);
+        if (caches.some(([, value]) => { const cache = value ? JSON.parse(value) as Cache : null; return cache && (cache.queue.length || cache.conflicts.length); })) throw new Error('Resolve pending logs in every cached household before deleting your account. Export a local backup if access has been removed.');
+        await request('/auth/account', { method: 'DELETE', body: { confirmation, password } });
+        await reconcileNotifications([]);
+        await AsyncStorage.multiRemove([...keys, `nestwise.meta.${current.user!.id}`]);
+        await credential.remove(); token.current = null; replace(initial);
+      } finally { endingSession.current = false; }
+    },
+    deleteHousehold: async (confirmation: string) => {
+      if (endingSession.current || busy.current || switching.current) throw new Error('Wait for synchronization to finish.');
+      endingSession.current = true;
+      try {
+        await writes.current;
+        const current = stateRef.current;
+        if (current.cache?.queue.length || current.cache?.conflicts.length) throw new Error('Finish synchronization and resolve conflicts before deleting this household.');
+        await request(`/households/${current.householdId}`, { method: 'DELETE', body: { confirmation } });
+        await reconcileNotifications([]);
+        await AsyncStorage.removeItem(`nestwise.cache.${current.user!.id}.${current.householdId}`);
+        replace({ ...current, householdId: null, cache: null, households: current.households.filter(h => h.id !== current.householdId) });
+        await refresh();
+      } finally { endingSession.current = false; }
     },
     logout: async () => {
       if (endingSession.current) return;

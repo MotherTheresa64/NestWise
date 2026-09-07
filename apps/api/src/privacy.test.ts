@@ -1,0 +1,56 @@
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { buildApi } from './app';
+import { migrate } from './migrate';
+const url=process.env.TEST_DATABASE_URL;
+describe.skipIf(!url)('privacy isolation and destructive safeguards',()=>{
+ const schema=`privacy_${randomUUID().replaceAll('-','')}`;const admin=new pg.Pool({connectionString:url});const pool=new pg.Pool({connectionString:url,options:`-c search_path=${schema}`});let app:Awaited<ReturnType<typeof buildApi>>;
+ const call=(method:'GET'|'POST'|'DELETE',path:string,token?:string,payload?:unknown)=>app.inject({method,url:path,headers:{...(token?{authorization:`Bearer ${token}`} : {}),...(payload?{'content-type':'application/json'}:{})},...(payload?{payload:JSON.stringify(payload)}:{})});
+ beforeAll(async()=>{await admin.query(`CREATE SCHEMA ${schema}`);await migrate(pool);app=await buildApi(pool);});
+ afterAll(async()=>{await app.close();await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();});
+ it('exports authorized records without authentication secrets and restricts household deletion to its owner',async()=>{
+  const owner=(await call('POST','/auth/register',undefined,{name:'Owner',email:'owner@privacy.test',password:'long private passphrase'})).json();
+  const outsider=(await call('POST','/auth/register',undefined,{name:'Other',email:'other@privacy.test',password:'long private passphrase'})).json();
+  const h=(await call('POST','/households',owner.token,{name:'Privacy family',timezone:'UTC'})).json();const path=`/households/${h.id}`;
+  await call('POST',path+'/children',owner.token,{firstName:'Child',dateOfBirth:'2026-01-01'});
+  expect((await call('GET',path+'/export',outsider.token)).statusCode).toBe(404);
+  const exported=await call('GET','/auth/export',owner.token);expect(exported.statusCode).toBe(200);expect(exported.json().households[0].children).toHaveLength(1);
+  for(const secret of ['password_hash','token_hash',owner.token])expect(exported.body).not.toContain(secret);
+  expect((await call('DELETE',path,outsider.token,{confirmation:'DELETE HOUSEHOLD'})).statusCode).toBe(403);
+  expect((await call('DELETE',path,owner.token,{confirmation:'delete'})).statusCode).toBe(400);
+  expect((await call('GET',path+'/snapshot',owner.token)).statusCode).toBe(200);
+  expect((await call('DELETE','/auth/account',owner.token,{confirmation:'DELETE ACCOUNT',password:'long private passphrase'})).statusCode).toBe(409);
+  const child=(await call('GET',path+'/snapshot',owner.token)).json().children[0];
+  const id=randomUUID();const mutation={mutationId:randomUUID(),eventId:id,baseVersion:0,operation:'create',event:{id,childIds:[child.id],category:'bottle',occurredAt:new Date().toISOString(),details:{quantity:120,unit:'ml'},notes:'Private child data'}};
+  expect((await call('POST',path+'/sync',owner.token,[mutation])).statusCode).toBe(200);
+  const childPath=path+'/children/'+child.id;
+  expect((await call('DELETE',childPath,outsider.token,{confirmation:'DELETE CHILD',baseVersion:1})).statusCode).toBe(403);
+  expect((await call('DELETE',childPath,owner.token,{confirmation:'DELETE CHILD',baseVersion:99})).statusCode).toBe(409);
+  expect((await call('DELETE',childPath,owner.token,{confirmation:'DELETE CHILD',baseVersion:1})).statusCode).toBe(200);
+  expect((await call('POST',path+'/sync',owner.token,[mutation])).statusCode).toBe(409);
+  expect((await call('GET',path+'/snapshot',owner.token)).json().events).toEqual([]);
+  expect(JSON.stringify((await pool.query('SELECT * FROM changes WHERE household_id=$1',[h.id])).rows)).not.toContain('Private child data');
+  expect((await call('DELETE',path,owner.token,{confirmation:'DELETE HOUSEHOLD'})).statusCode).toBe(200);
+  expect((await call('GET',path+'/snapshot',owner.token)).statusCode).toBe(404);
+  expect((await call('DELETE','/auth/account',owner.token,{confirmation:'DELETE ACCOUNT',password:'incorrect long passphrase'})).statusCode).toBe(403);
+  expect((await call('DELETE','/auth/account',owner.token,{confirmation:'DELETE ACCOUNT',password:'long private passphrase'})).statusCode).toBe(200);
+  expect((await call('GET','/auth/export',owner.token)).statusCode).toBe(401);
+  for(const table of ['children','members','changes'])expect(Number((await pool.query(`SELECT count(*) FROM ${table} WHERE household_id=$1`,[h.id])).rows[0].count)).toBe(0);
+ });
+ it('anonymizes attribution after leaving a household and deleting an account, preserving shared care and audit history',async()=>{
+  const register=async(name:string,email:string)=>(await call('POST','/auth/register',undefined,{name,email,password:'long private passphrase'})).json();
+  const owner=await register('Continuing owner','continuing@privacy.test');const former=await register('Unique departed name','departed@privacy.test');
+  const h=(await call('POST','/households',owner.token,{name:'Continuing family',timezone:'UTC'})).json();const path=`/households/${h.id}`;
+  const invitation=(await call('POST',path+'/invitations',owner.token,{email:former.user.email,role:'caregiver'})).json();
+  expect((await call('POST','/invitations/accept',former.token,{token:invitation.token})).statusCode).toBe(200);
+  const c=(await call('POST',path+'/children',owner.token,{firstName:'Child',dateOfBirth:'2026-01-01'})).json();
+  const id=randomUUID();await call('POST',path+'/sync',former.token,[{mutationId:randomUUID(),eventId:id,baseVersion:0,operation:'create',event:{id,childIds:[c.id],category:'diaper',occurredAt:new Date().toISOString(),notes:'Shared care remains'}}]);
+  expect((await call('POST',path+'/membership',former.token,{action:'leave'})).statusCode).toBe(200);
+  expect((await call('DELETE','/auth/account',former.token,{confirmation:'DELETE ACCOUNT',password:'long private passphrase'})).statusCode).toBe(200);
+  const snapshot=(await call('GET',path+'/snapshot',owner.token)).json();expect(snapshot.events[0].notes).toBe('Shared care remains');expect(snapshot.events[0].createdByName).toBe('Former caregiver');
+  for(const table of ['events','changes','mutation_receipts'])expect(JSON.stringify((await pool.query(`SELECT * FROM ${table} WHERE household_id=$1`,[h.id])).rows)).not.toContain('Unique departed name');
+  const audit=(await pool.query('SELECT user_id FROM audit WHERE household_id=$1 AND action=$2',[h.id,'create'])).rows;expect(audit).toHaveLength(1);expect(audit[0].user_id).toBeNull();
+ });
+
+});

@@ -1,5 +1,7 @@
 # Realtime and care-management milestone
 
+Historical milestone. See [the product milestone](product-milestone.md) for current additions and limitations.
+
 Continued from clean `main` at `15551fe` without changing the Expo/Fastify/PostgreSQL architecture. This milestone concentrates on priorities 1–3, account/membership foundations from priority 4, and the sync/accessibility verification needed to support them. It is not production-ready and does not complete the full roadmap.
 
 ## Implemented

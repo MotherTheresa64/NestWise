@@ -9,6 +9,6 @@ createServer(async (request, response) => {
     if (path !== root && !path.startsWith(root + sep)) { response.writeHead(403); response.end(); return; }
     let body; let extension = extname(path);
     try { body = await readFile(path); } catch { body = await readFile(resolve(root, 'index.html')); extension = '.html'; }
-    response.writeHead(200, { 'Content-Type': types[extension] || 'application/octet-stream', 'Cache-Control': 'no-store' }); response.end(body);
+    response.writeHead(200, { 'Content-Type': types[extension] || 'application/octet-stream', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' }); response.end(body);
   } catch { response.writeHead(500); response.end(); }
 }).listen(8081, '127.0.0.1');

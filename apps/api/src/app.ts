@@ -1,3 +1,4 @@
+import { registerPrivacyRoutes } from './privacy';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -36,7 +37,7 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
     const result = await pool.query('SELECT u.id,u.email,u.name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()', [hash(token)]);
     return result.rows[0] || fail(401, 'Your session has expired. Please sign in again.');
   }
-  registerAccountRoutes(app, pool, userFor, options.deliverAccountMail);
+  registerAccountRoutes(app, pool, userFor, options.deliverAccountMail); registerPrivacyRoutes(app, pool, userFor);
   async function access(request: FastifyRequest, mode: 'read' | 'write' | 'manage' = 'read'): Promise<Access> {
     const user = await userFor(request);
     const { householdId } = paramsSchema.parse(request.params);
@@ -139,6 +140,7 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
       if (!membership || !canWrite(membership.role)) return fail(403, 'Your permission to log care has ended.');
       const results = [];
       for (const mutation of mutations) {
+        if ((await client.query('SELECT 1 FROM erased_events WHERE household_id=$1 AND event_id=$2', [householdId, mutation.eventId])).rowCount) fail(409, 'This care event was permanently erased. Your pending edit remains on this device; export it for review.');
         const receipt = (await client.query('SELECT * FROM mutation_receipts WHERE household_id=$1 AND mutation_id=$2', [householdId, mutation.mutationId])).rows[0];
         if (receipt) {
           const same = await client.query('SELECT $1::jsonb=$2::jsonb AS same', [receipt.input, mutation]);

@@ -90,3 +90,17 @@ CREATE OR REPLACE TRIGGER events_change AFTER INSERT OR UPDATE OR DELETE ON even
 CREATE OR REPLACE TRIGGER children_change AFTER INSERT OR UPDATE OR DELETE ON children FOR EACH ROW EXECUTE FUNCTION record_household_change();
 CREATE OR REPLACE TRIGGER reminders_change AFTER INSERT OR UPDATE OR DELETE ON reminders FOR EACH ROW EXECUTE FUNCTION record_household_change();
 CREATE OR REPLACE TRIGGER members_change AFTER INSERT OR UPDATE OR DELETE ON members FOR EACH ROW EXECUTE FUNCTION record_household_change();
+
+-- Deleted accounts retain anonymous collaboration receipts/audit entries, never login identity.
+ALTER TABLE audit ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE audit DROP CONSTRAINT IF EXISTS audit_user_id_fkey;
+ALTER TABLE audit ADD CONSTRAINT audit_user_id_fkey FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE mutation_receipts ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE mutation_receipts DROP CONSTRAINT IF EXISTS mutation_receipts_user_id_fkey;
+ALTER TABLE mutation_receipts ADD CONSTRAINT mutation_receipts_user_id_fkey FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Minimal erasure markers prevent an old offline create/receipt from resurrecting deleted care.
+CREATE TABLE IF NOT EXISTS erased_events (
+ household_id uuid NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+ event_id uuid NOT NULL, PRIMARY KEY(household_id,event_id)
+);

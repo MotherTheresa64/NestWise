@@ -1,3 +1,4 @@
+import { DateField } from './DateField';
 import { useState } from 'react';
 import * as Crypto from 'expo-crypto';
 import { categories, type CareEvent, type Category, type EventDetails, parseLog } from '@nestwise/shared';
@@ -15,13 +16,13 @@ export function EventEditor({ onClose, existing }: { onClose: () => void; existi
   const quantity = ['bottle', 'pumping', 'water', 'medicine', 'temperature', 'growth'].includes(category);
   return <Dialog visible title={existing ? 'Edit care moment' : 'Log a little moment'} onClose={onClose}>
     {existing && <Label>Editing version {existing.version}. If another caregiver changes this moment, your edit will be held for review in Settings.</Label>}
-    <Field label="Quick phrase" hint='Try “bottle 120 ml” or “wet diaper”. Choose children and time below, then confirm with Save.' value={text} onChangeText={setText} />
-    <Button title="Review phrase" variant="secondary" onPress={() => { const result = parseLog(text); if (!result) { task.setError('Use “bottle 120 ml” or “wet diaper”, or fill in the form below. Other phrases are not supported yet.'); return; } setCategory(result.category); setDetails(result.details); setDraft(true); task.setError(null); }} />
+    <Field label="Quick phrase" hint='Try “River and Sage: bottle 120 ml 20 minutes ago” or “nursed left for 15 minutes”. Review every field before saving.' value={text} onChangeText={setText} />
+    <Button title="Review phrase" variant="secondary" onPress={() => { const result = parseLog(text, { now: new Date(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, children: nest.snapshot?.children.filter(c => c.active) || [] }); if (!result) { task.setError('I could not confidently read that phrase. Try “River: nursed left for 15 minutes” or fill in the form below. Use AM/PM for clock times, or an explicit timezone for full timestamps.'); return; } setCategory(result.category); setDetails(result.details); setNotes(result.notes); if (result.childIds) setChildIds(result.childIds); if (result.occurredAt) setOccurredAt(localDateTime(result.occurredAt)); setEndedAt(result.endedAt ? localDateTime(result.endedAt) : ""); setDraft(true); task.setError(null); }} />
     {draft && <Label>Draft ready to review. Nothing has been saved.</Label>}
     <Choice label="Children" multiple value={childIds} options={(nest.snapshot?.children || []).filter(c => c.active || existing?.childIds.includes(c.id)).map(c => ({ value: c.id, label: `${c.firstName}${c.active ? '' : ' (archived)'}` }))} onChange={id => setChildIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id])} />
     <Choice label="Care event" value={category} options={categories.map(value => ({ value, label: categoryLabels[value] }))} onChange={value => { setCategory(value); setDetails({}); }} />
-    <Field label="Start / event time" value={occurredAt} onChangeText={setOccurredAt} hint="YYYY-MM-DD HH:mm in this device’s timezone." />
-    {timed && <Field label="End time (optional)" value={endedAt} onChangeText={setEndedAt} hint="Leave blank to start a timer. Stop it from the timeline." />}
+    <DateField time label="Start / event time" value={occurredAt} onChangeText={setOccurredAt} hint="YYYY-MM-DD HH:mm in this device’s timezone." />
+    {timed && <DateField time label="End time (optional)" value={endedAt} onChangeText={setEndedAt} hint="Leave blank to start a timer. Stop it from the timeline." />}
     {category === 'sleep' && <Choice label="Sleep type" options={[{ value: 'nap', label: 'Nap' }, { value: 'night', label: 'Night' }]} value={details.sleepKind || 'nap'} onChange={sleepKind => setDetails({ ...details, sleepKind })} />}
     {category === 'nursing' && <Choice label="Side" options={(['left', 'right', 'both'] as const).map(value => ({ value, label: value }))} value={details.side || 'both'} onChange={side => setDetails({ ...details, side })} />}
     {category === 'diaper' && <Choice label="Diaper" options={(['wet', 'dirty', 'mixed', 'dry'] as const).map(value => ({ value, label: value }))} value={details.diaperType || 'wet'} onChange={diaperType => setDetails({ ...details, diaperType })} />}

@@ -33,7 +33,8 @@ export function Shell() {
     </Pressable>;
   };
   let content;
-  if (nest.loading && !nest.user) content = <Loading />;
+  if (pathname === '/account' || (pathname === '/join' && nest.user)) content = <Slot />;
+  else if (nest.loading && !nest.user) content = <Loading />;
   else if (!nest.user) content = <AuthScreen />;
   else if (nest.loading && !nest.snapshot) content = <Loading />;
   else if (!nest.households.length) content = <OnboardingScreen />;

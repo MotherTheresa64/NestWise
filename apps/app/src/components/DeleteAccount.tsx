@@ -1,0 +1,7 @@
+import { useState } from 'react';
+import { useNest } from '../lib/store';
+import { Button, Card, Dialog, ErrorMessage, Field, Heading, Label, useTask } from './ui';
+export function DeleteAccount() {
+ const nest=useNest();const task=useTask();const [open,setOpen]=useState(false);const [confirmation,setConfirmation]=useState('');const [password,setPassword]=useState('');
+ return <Card><Heading small>Close your account</Heading><Label muted>Leave all households first, transferring ownership or deleting households you own. Shared care stays with remaining caregivers under anonymous attribution. This does not erase mentions in their notes, exported files or backups.</Label><Button title="Delete my account" variant="danger" onPress={()=>setOpen(true)} />{open && <Dialog visible title="Permanently delete your account?" onClose={()=>setOpen(false)}><Label>This removes your login, email, sessions and recovery codes. It cannot be undone. Pending care must be synchronized and all household memberships must be ended first.</Label><Field label="Current password" value={password} onChangeText={setPassword} secureTextEntry /><Field label="Type DELETE ACCOUNT" value={confirmation} onChangeText={setConfirmation} /><ErrorMessage message={task.error} /><Button title="Delete account forever" variant="danger" disabled={task.pending || confirmation!=='DELETE ACCOUNT' || !password} onPress={()=>void task.run(()=>nest.deleteAccount(confirmation,password))} /></Dialog>}</Card>;
+}

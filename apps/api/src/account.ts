@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type pg from 'pg';
-import { createHash, randomBytes, scrypt as callback } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual, scrypt as callback } from 'node:crypto';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import type { User } from '@nestwise/shared';
@@ -10,6 +10,30 @@ const hash = (token: string) => createHash('sha256').update(token).digest('hex')
 export type AccountMail = (message: { email: string; purpose: 'verify' | 'reset'; token: string; expiresMinutes: number }) => Promise<void>;
 export function registerAccountRoutes(app: FastifyInstance, pool: pg.Pool, userFor: (request: FastifyRequest) => Promise<User>, deliver?: AccountMail) {
   const fail = (statusCode: number, message: string): never => { throw Object.assign(new Error(message), { statusCode }); };
+  app.delete('/auth/account', { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } }, async request => {
+    const user = await userFor(request);
+    const input = z.object({ confirmation: z.literal('DELETE ACCOUNT'), password: z.string().min(12).max(128) }).strict().parse(request.body);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const row = (await client.query('SELECT password_hash FROM users WHERE id=$1 FOR UPDATE', [user.id])).rows[0];
+      if (!row) fail(401, 'Sign in again.');
+      const [salt, key] = row.password_hash.split(':');
+      const candidate = await scrypt(input.password, salt, 64) as Buffer;
+      if (!timingSafeEqual(candidate, Buffer.from(key, 'hex'))) fail(403, 'The password does not match.');
+      if ((await client.query('SELECT 1 FROM members WHERE user_id=$1', [user.id])).rowCount) fail(409, 'Leave every household first. Transfer ownership or delete households you own before deleting your account.');
+      // Shared care belongs to the remaining household. Remove the account name from its attribution and historical sync copies.
+      const households = (await client.query("SELECT DISTINCT household_id FROM events WHERE data->>'createdBy'=$1 ORDER BY household_id", [user.id])).rows;
+      for (const h of households) await client.query('SELECT id FROM households WHERE id=$1 FOR UPDATE', [h.household_id]);
+      await client.query("UPDATE events SET data=jsonb_set(data,'{createdByName}','\"Former caregiver\"') WHERE data->>'createdBy'=$1", [user.id]);
+      await client.query("UPDATE changes SET record=jsonb_set(record,'{createdByName}','\"Former caregiver\"') WHERE kind='events' AND record->>'createdBy'=$1", [user.id]);
+      await client.query("UPDATE changes SET record=NULL WHERE kind='members' AND entity_id=$1", [user.id]);
+      await client.query("UPDATE mutation_receipts SET result=jsonb_set(result,'{event,createdByName}','\"Former caregiver\"') WHERE result->'event'->>'createdBy'=$1", [user.id]);
+      await client.query('DELETE FROM invitations WHERE email=$1', [user.email]);
+      await client.query('DELETE FROM users WHERE id=$1', [user.id]);
+      await client.query('COMMIT'); return { ok: true };
+    } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+  });
   app.get('/auth/security', async request => {
     const user = await userFor(request); const row = (await pool.query('SELECT verified_at FROM users WHERE id=$1', [user.id])).rows[0];
     return { emailVerified: !!row.verified_at, mailAvailable: !!deliver };

@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +8,7 @@ import { usePalette } from '../theme';
 import { Button, Card, ErrorMessage, Field, Heading, Label, Row, useTask } from '../components/ui';
 
 export function AuthScreen() {
-  const nest = useNest(); const c = usePalette(); const wide = useWindowDimensions().width >= 850;
+  const router = useRouter(); const nest = useNest(); const c = usePalette(); const wide = useWindowDimensions().width >= 850;
   const [register, setRegister] = useState(false); const [name, setName] = useState('');
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const task = useTask();
   const submit = () => void task.run(async () => {
@@ -27,7 +28,7 @@ export function AuthScreen() {
         <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete={register ? 'new-password' : 'current-password'} hint={register ? 'At least 12 characters.' : undefined} onSubmitEditing={submit} />
         <ErrorMessage message={task.error || nest.error} /><Button title={task.pending ? 'Please wait...' : register ? 'Create account' : 'Sign in'} disabled={task.pending} onPress={submit} icon="arrow-forward-outline" />
         <Button title={register ? 'Already have an account? Sign in' : 'New to NestWise? Create an account'} variant="ghost" onPress={() => { setRegister(!register); task.setError(null); nest.clearError(); }} />
-        <Label muted style={{ fontSize: 12, textAlign: 'center' }}>Your family's information stays in your household. No public profiles.</Label>
+        <Button title="Forgot your password?" variant="ghost" onPress={() => router.push("/account")} /><Label muted style={{ fontSize: 12, textAlign: 'center' }}>Your family's information stays in your household. No public profiles.</Label>
       </Card>
     </Row>
   </ScrollView></KeyboardAvoidingView>;
