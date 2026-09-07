@@ -1,4 +1,5 @@
 import { registerPrivacyRoutes } from './privacy';
+import { registerFoodRoutes } from './foods';
 import { origins, proxyTrust } from './config';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
@@ -40,6 +41,7 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
     return result.rows[0] || fail(401, 'Your session has expired. Please sign in again.');
   }
   registerAccountRoutes(app, pool, userFor, options.deliverAccountMail); registerPrivacyRoutes(app, pool, userFor);
+  registerFoodRoutes(app, pool, userFor);
   async function access(request: FastifyRequest, mode: 'read' | 'write' | 'manage' = 'read'): Promise<Access> {
     const user = await userFor(request);
     const { householdId } = paramsSchema.parse(request.params);
@@ -112,15 +114,18 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
       const events = (await client.query('SELECT data FROM events WHERE household_id=$1 ORDER BY updated_at DESC', [householdId])).rows.map(r => r.data);
       const members = (await client.query('SELECT u.id AS "userId",u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.household_id=$1', [householdId])).rows;
       const reminders = (await client.query('SELECT data FROM reminders WHERE household_id=$1', [householdId])).rows.map(r => r.data);
+      const foods = (await client.query('SELECT data FROM foods WHERE household_id=$1',[householdId])).rows.map(r=>r.data);
       await client.query('COMMIT');
-      return { household: { ...household, role }, revision: Number(household.revision), children, events, members, reminders, serverTime: new Date().toISOString() };
+      return { household: { ...household, role }, revision: Number(household.revision), children, events, members, reminders, foods, serverTime: new Date().toISOString() };
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   });
   app.get('/households/:householdId/changes', async request => {
     const { householdId } = await access(request);
-    const { after } = z.object({ after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).parse(request.query);
+    const { after, includeFoods } = z.object({ after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER), includeFoods: z.literal('1').optional() }).parse(request.query);
     const rows = (await pool.query('SELECT revision,kind,entity_id AS "entityId",record FROM changes WHERE household_id=$1 AND revision>$2 ORDER BY revision LIMIT 201', [householdId, after])).rows;
-    return { changes: rows.slice(0, 200).map(r => ({ ...r, revision: Number(r.revision) })), hasMore: rows.length > 200 };
+    // Older clients assume every unrecognized kind is a reminder. Advance their cursor with
+    // a harmless tombstone in a non-UUID namespace instead of giving them a food record.
+    return { changes: rows.slice(0, 200).map(r => r.kind === 'foods' && !includeFoods ? { revision: Number(r.revision), kind: 'events', entityId: `catalog:${r.entityId}`, record: null } : ({ ...r, revision: Number(r.revision) })), hasMore: rows.length > 200 };
   });
   app.post('/households/:householdId/children', async request => {
     const { householdId } = await access(request, 'manage'); const input = childInputSchema.parse(request.body); const id = randomUUID();

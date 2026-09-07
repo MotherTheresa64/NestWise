@@ -16,10 +16,11 @@ export function registerPrivacyRoutes(app: FastifyInstance, pool: pg.Pool, userF
     const children=(await client.query('SELECT id,data,created_at,version FROM children WHERE household_id=$1',[id])).rows;
     const events=(await client.query('SELECT data FROM events WHERE household_id=$1',[id])).rows.map(r=>r.data);
     const reminders=(await client.query('SELECT data FROM reminders WHERE household_id=$1',[id])).rows.map(r=>r.data);
+    const foods=(await client.query('SELECT data FROM foods WHERE household_id=$1',[id])).rows.map(r=>r.data);
     const members=(await client.query('SELECT u.id,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.household_id=$1',[id])).rows;
     const invitations=['owner','admin'].includes(h.role)?(await client.query('SELECT id,email,role,expires_at FROM invitations WHERE household_id=$1',[id])).rows:[];
     const audit=['owner','admin'].includes(h.role)?(await client.query('SELECT id,user_id,action,entity_id,created_at FROM audit WHERE household_id=$1 ORDER BY id',[id])).rows:[];
-    return {household:h,children,events,reminders,members,invitations,audit};
+    return {household:h,children,events,reminders,foods,members,invitations,audit};
   }
   for(const scope of ['user','household'] as const) app.get(scope==='user'?'/auth/export':'/households/:householdId/export',async(request,reply)=>{
     const user=await userFor(request); const client=await pool.connect();
@@ -40,6 +41,11 @@ export function registerPrivacyRoutes(app: FastifyInstance, pool: pg.Pool, userF
       const child=(await client.query('SELECT version FROM children WHERE id=$1 AND household_id=$2',[childId,householdId])).rows[0];
       if(!child)fail(404,'Child not found.');if(child.version!==baseVersion)fail(409,'This child changed. Refresh and review before deleting.');
       await checkSession(client,request,user);
+      const foodIds=(await client.query("SELECT id FROM foods WHERE household_id=$1 AND data->'childIds' ? $2 UNION SELECT entity_id FROM changes WHERE household_id=$1 AND kind='foods' AND record->'childIds' ? $2",[householdId,childId])).rows.map(r=>r.id);
+      for(const id of foodIds) await client.query('INSERT INTO erased_foods VALUES($1,$2) ON CONFLICT DO NOTHING',[householdId,id]);
+      await client.query("DELETE FROM mutation_receipts WHERE household_id=$1 AND input->>'foodId'=ANY($2::text[])",[householdId,foodIds]);
+      await client.query("UPDATE changes SET record=NULL WHERE household_id=$1 AND kind='foods' AND entity_id=ANY($2::uuid[])",[householdId,foodIds]);
+      await client.query('DELETE FROM foods WHERE household_id=$1 AND id=ANY($2::uuid[])',[householdId,foodIds]);
       const ids=(await client.query("SELECT id FROM events WHERE household_id=$1 AND data->'childIds' ? $2 UNION SELECT entity_id AS id FROM changes WHERE household_id=$1 AND kind='events' AND record->'childIds' ? $2 UNION SELECT (input->>'eventId')::uuid AS id FROM mutation_receipts WHERE household_id=$1 AND (input->'event'->'childIds' ? $2 OR result->'event'->'childIds' ? $2)",[householdId,childId])).rows.map(r=>r.id);
       for(const id of ids)await client.query('INSERT INTO erased_events VALUES($1,$2) ON CONFLICT DO NOTHING',[householdId,id]);
       await client.query("DELETE FROM mutation_receipts WHERE household_id=$1 AND input->>'eventId'=ANY($2::text[])",[householdId,ids]);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export { predictRoutines, sharedWindow } from './intelligence';
+export { eventSummary, mealFoods, repeatDetails } from './summaries';
 export { parseLog, deterministicParser, type CareLogParser, type LogDraft, type ParseContext } from './natural';
 
 export const categories = ['sleep', 'nursing', 'bottle', 'pumping', 'food', 'water', 'diaper', 'potty', 'medicine', 'temperature', 'symptom', 'growth', 'teeth', 'bath', 'routine', 'milestone', 'custom'] as const;
@@ -10,23 +11,38 @@ export type Role = typeof roles[number];
 export const roleSchema = z.enum(roles);
 export const idSchema = z.string().uuid();
 export const dateTimeSchema = z.string().datetime({ offset: true });
+export const foodServingSchema = z.object({
+  foodId: idSchema.optional(), name: z.string().trim().min(1).max(100),
+  amount: z.number().finite().min(0).max(10000).optional(), unit: z.enum(['g', 'oz', 'ml', 'tsp', 'tbsp', 'cup', 'piece', 'serving']).optional(),
+  preference: z.enum(['liked', 'neutral', 'disliked']).optional(), sensitivityObserved: z.boolean().optional(),
+  observation: z.string().trim().max(300).optional(),
+}).strict().refine(v => v.amount === undefined || !!v.unit, 'Choose a unit for the food amount');
+export type FoodServing = z.infer<typeof foodServingSchema>;
 export const timezoneSchema = z.string().max(100).refine(value => {
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; }
 }, 'Choose a valid IANA timezone');
 export const detailsSchema = z.object({
   quantity: z.number().finite().min(0).max(100000).optional(),
   unit: z.enum(['oz', 'ml', 'mg', 'g', 'kg', 'lb', 'cm', 'in', 'C', 'F', 'minutes', 'drops', 'dose']).optional(),
-  milkType: z.enum(['breast milk', 'formula', 'cow milk', 'other']).optional(),
+  milkType: z.enum(['breast milk', 'formula', 'cow milk', 'goat milk', 'soy milk', 'other']).optional(),
+  liquidName: z.string().trim().max(100).optional(),
   side: z.enum(['left', 'right', 'both']).optional(),
   diaperType: z.enum(['wet', 'dirty', 'mixed', 'dry']).optional(),
   pottyResult: z.enum(['success', 'attempt']).optional(),
+  peeAmount: z.enum(['little', 'medium', 'big']).optional(),
+  pooAmount: z.enum(['little', 'medium', 'big']).optional(),
+  diaperRash: z.boolean().optional(),
   medicineName: z.string().trim().max(200).optional(),
   food: z.string().trim().max(1000).optional(),
+  foods: z.array(foodServingSchema).max(20).optional(),
   measurement: z.enum(['weight', 'height', 'head']).optional(),
   sleepKind: z.enum(['nap', 'night']).optional(),
   sleepLocation: z.string().trim().max(100).optional(),
   leftMinutes: z.number().finite().min(0).max(1440).optional(),
   rightMinutes: z.number().finite().min(0).max(1440).optional(),
+  sessionMinutes: z.number().finite().min(0).max(1440).optional(),
+  pumpMethod: z.enum(['electric', 'manual', 'hand expression']).optional(),
+  scheduledContext: z.string().trim().max(200).optional(),
   foodTexture: z.enum(['puree', 'mashed', 'finger food', 'family food']).optional(),
   reaction: z.string().trim().max(500).optional(),
   stoolColor: z.string().trim().max(80).optional(),
@@ -34,8 +50,15 @@ export const detailsSchema = z.object({
   medicineRoute: z.enum(['oral', 'topical', 'inhaled', 'other']).optional(),
   temperatureMethod: z.enum(['axillary', 'oral', 'rectal', 'ear', 'forehead', 'other']).optional(),
   symptomName: z.string().trim().max(200).optional(),
+  symptoms: z.array(z.object({ name: z.string().trim().min(1).max(100), severity: z.enum(['mild', 'moderate', 'severe']).optional() }).strict()).max(20).optional(),
   severity: z.enum(['mild', 'moderate', 'severe']).optional(),
-  customLabel: z.string().trim().max(100).optional()
+  customLabel: z.string().trim().max(100).optional(),
+  activityName: z.string().trim().max(100).optional(),
+  routineSteps: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
+  tooth: z.string().trim().max(100).optional(),
+  teethAction: z.enum(['brushed', 'emerging', 'lost']).optional(),
+  bathKind: z.enum(['bath', 'shower', 'wash']).optional(),
+  milestoneName: z.string().trim().max(150).optional()
 }).strict();
 export type EventDetails = z.infer<typeof detailsSchema>;
 export const eventInputSchema = z.object({
@@ -47,6 +70,11 @@ export const eventInputSchema = z.object({
   notes: z.string().trim().max(5000).default(''),
   details: detailsSchema.default({})
 }).strict().superRefine((event, ctx) => {
+  const d=event.details;
+  if(d.foods && event.category!=='food')ctx.addIssue({code:z.ZodIssueCode.custom,path:['details','foods'],message:'Foods belong to a meal'});
+  if(d.symptoms && event.category!=='symptom')ctx.addIssue({code:z.ZodIssueCode.custom,path:['details','symptoms'],message:'Symptoms belong to symptom observations'});
+  if(d.peeAmount && !['wet','mixed'].includes(d.diaperType || 'wet'))ctx.addIssue({code:z.ZodIssueCode.custom,path:['details','peeAmount'],message:'Pee amount requires pee or mixed contents'});
+  if(d.pooAmount && !['dirty','mixed'].includes(d.diaperType || 'wet'))ctx.addIssue({code:z.ZodIssueCode.custom,path:['details','pooAmount'],message:'Poo amount requires poo or mixed contents'});
   const units: Partial<Record<Category, readonly string[]>> = {
     bottle: ['ml', 'oz'], water: ['ml', 'oz'], temperature: ['C', 'F'], medicine: ['mg', 'ml', 'drops', 'dose'],
     growth: event.details.measurement === 'weight' ? ['kg', 'lb'] : ['cm', 'in'],
@@ -101,10 +129,16 @@ export const reminderInputSchema = z.object({
 }).strict();
 export type ReminderInput = z.infer<typeof reminderInputSchema>;
 export interface Reminder extends ReminderInput { id: string; householdId: string; completedAt: string | null; version?: number }
-export interface Snapshot { household: Household; children: Child[]; events: CareEvent[]; members: Member[]; reminders: Reminder[]; serverTime: string; revision?: number }
+export const foodInputSchema = z.object({ name: z.string().trim().min(1).max(100), childIds: z.array(idSchema).max(20).refine(ids=>new Set(ids).size===ids.length,'Duplicate children').default([]), active: z.boolean().default(true), favorite: z.boolean().default(false) }).strict();
+export type FoodInput = z.infer<typeof foodInputSchema>;
+export interface CatalogFood extends FoodInput { id: string; householdId: string; version: number }
+export const foodMutationSchema = z.object({ mutationId: idSchema, foodId: idSchema, baseVersion: z.number().int().min(0), food: foodInputSchema }).strict();
+export type FoodMutation = z.infer<typeof foodMutationSchema>;
+export interface FoodResult { mutationId: string; status: 'applied' | 'conflict'; food: CatalogFood | null }
+export interface Snapshot { household: Household; children: Child[]; events: CareEvent[]; members: Member[]; reminders: Reminder[]; foods?: CatalogFood[]; serverTime: string; revision?: number }
 export type HouseholdChange = { revision: number; entityId: string } & (
   { kind: 'events'; record: CareEvent | null } | { kind: 'children'; record: Child | null } |
-  { kind: 'reminders'; record: Reminder | null } | { kind: 'members'; record: Member | null }
+  { kind: 'reminders'; record: Reminder | null } | { kind: 'members'; record: Member | null } | { kind: 'foods'; record: CatalogFood | null }
 );
 export interface ChangePage { changes: HouseholdChange[]; hasMore: boolean }
 export const mutationSchema = z.object({

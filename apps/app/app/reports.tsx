@@ -1,3 +1,5 @@
+import { eventSummary } from '@nestwise/shared';
+import { ReportExplorer } from '../src/components/ReportExplorer';
 import { File } from 'expo-file-system';
 import { DateField } from '../src/components/DateField';
 import { useState } from 'react';
@@ -12,6 +14,7 @@ import { usePalette } from '../src/theme';
 
 export default function Reports() {
   const nest = useNest(); const snapshot = nest.snapshot!; const task = useTask(); const palette = usePalette();
+  const [view,setView]=useState('summary');
   const [customize, setCustomize] = useState(false); const [chart, setChart] = useState('entries');
   const [child, setChild] = useState('all'); const [period, setPeriod] = useState('week');
   const today = localDay(Date.now(), snapshot.household.timezone);
@@ -45,9 +48,11 @@ export default function Reports() {
       <Label muted>{reportDisclaimer}</Label></>}<ErrorMessage message={rangeError || task.error} />{feedback && <Label>{feedback}</Label>}
       {!!(nest.queue.length || nest.conflicts.length) && <Label>Includes local changes. Finish synchronization and resolve conflicts before sharing a final report.</Label>}
     </Card>
-    {report?.children.map(({ child: c, summaries, days }) => <Card key={c.id}><Heading small>{c.firstName}</Heading>
+    <Card><Choice label="Report view" value={view} options={[{value:"summary",label:"Summary"},{value:"day",label:"Day"},{value:"week",label:"Week"},{value:"list",label:"List"}]} onChange={setView} /></Card>
+    {report && view!=='summary' && <ReportExplorer report={report} view={view} />}
+    {view==='summary' && report?.children.map(({ child: c, summaries, days }) => <Card key={c.id}><Heading small>{c.firstName}</Heading>
       <Label muted>Shared sibling entries count once per child. Active sleep timers are excluded from duration.</Label>
-      <Row style={{ alignItems: 'stretch' }}>{summaries.map(s => <View key={s.section} style={{ flexGrow: 1, flexBasis: 220, backgroundColor: palette.soft, borderRadius: 14, padding: 16, gap: 8 }}><Heading small>{s.section[0].toUpperCase() + s.section.slice(1)}</Heading><Label>{s.count ? `${s.count} recorded entries` : 'No entries recorded'}</Label>{s.sleepHours !== null && <Label>{s.sleepHours.toFixed(1)} hours of completed sleep</Label>}{s.quantities.map(q => <Label key={q.label}>{q.label}: {q.total.toFixed(1)}</Label>)}{['temperature','growth'].includes(s.section) && s.observations.map(o=><Label key={o.label}>{o.label}: {o.min === o.max ? o.min : `${o.min}–${o.max}`} recorded range</Label>)}{['medicine', 'symptoms', 'temperature', 'growth'].includes(s.section) && s.records.slice().sort((a,b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 3).map(e => <Label key={e.id}>{localDay(Date.parse(e.occurredAt), report!.timezone)} · {Object.values(e.details).join(' · ')}</Label>)}</View>)}</Row>
+      <Row style={{ alignItems: 'stretch' }}>{summaries.map(s => <View key={s.section} style={{ flexGrow: 1, flexBasis: 220, backgroundColor: palette.soft, borderRadius: 14, padding: 16, gap: 8 }}><Heading small>{s.section[0].toUpperCase() + s.section.slice(1)}</Heading><Label>{s.count ? `${s.count} recorded entries` : 'No entries recorded'}</Label>{s.sleepHours !== null && <Label>{s.sleepHours.toFixed(1)} hours of completed sleep</Label>}{s.breakdown.map(item=><Label key={item.label}>{item.label}: {item.count}</Label>)}{s.quantities.map(q => <Label key={q.label}>{q.label}: {q.total.toFixed(1)}</Label>)}{['temperature','growth'].includes(s.section) && s.observations.map(o=><Label key={o.label}>{o.label}: {o.min === o.max ? o.min : `${o.min}–${o.max}`} recorded range</Label>)}{['medicine', 'symptoms', 'temperature', 'growth'].includes(s.section) && s.records.slice().sort((a,b) => b.occurredAt.localeCompare(a.occurredAt)).slice(0, 3).map(e => <Label key={e.id}>{localDay(Date.parse(e.occurredAt), report!.timezone)} · {eventSummary(e)}</Label>)}</View>)}</Row>
       <Heading small>Recorded care by day</Heading><Choice label="Chart" value={chart} options={[{value:"entries",label:"Entry count"}, ...sections.map(value => ({value, label:value === 'sleep' ? 'Completed sleep hours' : `${value[0].toUpperCase() + value.slice(1)} entries`}))]} onChange={setChart} /><Label muted>These bars show recorded care only. A dash means no matching care was recorded.</Label>
       {days.map(day => <Row key={day.day}><Label style={{ width: 84 }}>{day.day.slice(5)}</Label><View style={{ flex: 1, height: 14, borderRadius: 7, backgroundColor: palette.soft }}><View style={{ width: `${valueForDay(day) / Math.max(1, ...days.map(valueForDay)) * 100}%`, height: 14, borderRadius: 7, backgroundColor: palette.primary }} /></View><Label style={{ width: 34, textAlign: 'right' }}>{valueForDay(day) ? chart === 'sleep' ? valueForDay(day).toFixed(1) : valueForDay(day) : '—'}</Label></Row>)}
     </Card>)}

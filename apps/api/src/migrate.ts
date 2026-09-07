@@ -11,7 +11,7 @@ export async function migrate(pool: pg.Pool) {
     await client.query("SET LOCAL lock_timeout='10s'");
     await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
     // Freeze the inherited idempotent schema as the first migration. Append future files; never edit applied SQL.
-    for (const name of ['schema.sql']) {
+    for (const name of ['schema.sql', '002-foods.sql']) {
       const sql = (await readFile(new URL(`./${name}`, import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
       const checksum = createHash('sha256').update(sql).digest('hex');
       const prior = (await client.query('SELECT checksum FROM schema_migrations WHERE name=$1', [name])).rows[0];

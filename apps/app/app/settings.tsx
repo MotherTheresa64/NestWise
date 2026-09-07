@@ -1,3 +1,4 @@
+import { FoodLibrary } from '../src/components/FoodLibrary';
 import { DeleteAccount } from '../src/components/DeleteAccount';
 import { PrivacyControls } from '../src/components/PrivacyControls';
 import { useNest } from '../src/lib/store';
@@ -5,8 +6,10 @@ import { Button, Card, Choice, Confirm, ErrorMessage, Heading, Label, Page, useT
 import { useState } from 'react';
 import { AccountSecurity } from '../src/components/AccountSecurity';
 export default function Settings() {
+  const [library,setLibrary]=useState(false);
   const nest = useNest(); const task = useTask(); const [discard, setDiscard] = useState<string | null>(null); const [resolve, setResolve] = useState<string | null>(null);
   return <Page title="Make yourself at home" subtitle="Appearance, synchronization, and your session.">
+    <Card><Heading small>Shared food library</Heading><Label>{nest.foodQueue.length} pending food edits · {nest.foodConflicts.length} food conflicts</Label><Button title="Manage food library" variant="secondary" onPress={()=>setLibrary(true)} /></Card>{library && <FoodLibrary onClose={()=>setLibrary(false)} />}
     <AccountSecurity /><PrivacyControls /><DeleteAccount />
     <Card><Heading small>Your local care backup</Heading><Label muted>Export this account’s cached households, including pending logs and conflicts. This works offline and contains private family information. It does not include session tokens or password hashes. It is a device backup, not a complete server/account export.</Label><Button title="Export local care backup" variant="secondary" disabled={task.pending} onPress={() => void task.run(nest.exportLocalBackup)} /></Card>
     <Card><Heading small>Appearance</Heading><Choice value={nest.theme} options={(['system', 'light', 'dark'] as const).map(value => ({ value, label: value }))} onChange={nest.setTheme} /></Card>

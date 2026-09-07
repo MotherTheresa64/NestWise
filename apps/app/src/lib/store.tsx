@@ -3,7 +3,9 @@ import { AppState, Platform } from 'react-native';
 import AsyncStorage from './care-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { eventInputSchema, type AuthResponse, type ChangePage, type EventInput, type Household, type MutationResult, type Snapshot, type SyncMutation, type User } from '@nestwise/shared';
+import { foodMutationSchema, type FoodInput, type FoodResult, type FoodMutation, eventInputSchema, type AuthResponse, type ChangePage, type EventInput, type Household, type MutationResult, type Snapshot, type SyncMutation, type User } from '@nestwise/shared';
+import { createTransport, type Connection } from './transport';
+import { optimisticFoods, applyFoodResult, type FoodConflict } from './food-queue';
 import { applyChanges, applyResult, optimisticEvents } from './queue';
 import { enableLocalNotifications, localNotificationsSupported, reconcileNotifications } from './notifications';
 import { shareBackup } from './backup';
@@ -12,7 +14,7 @@ const apiUrl = process.env.EXPO_PUBLIC_API_URL || (__DEV__ ? 'http://localhost:3
 if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL must be configured when building NestWise.');
 type RequestOptions = { method?: string; body?: unknown };
 type Conflict = { mutation: SyncMutation; result: MutationResult };
-type Cache = { snapshot: Snapshot; queue: SyncMutation[]; conflicts: Conflict[] };
+type Cache = { snapshot: Snapshot; queue: SyncMutation[]; conflicts: Conflict[]; foodQueue?: FoodMutation[]; foodConflicts?: FoodConflict[] };
 type State = { user: User | null; households: Household[]; householdId: string | null; cache: Cache | null };
 const initial: State = { user: null, households: [], householdId: null, cache: null };
 const credential = {
@@ -22,6 +24,9 @@ const credential = {
 };
 function useNestState() {
   const [state, setState] = useState<State>(initial); const stateRef = useRef(state); const token = useRef<string | null>(null);
+  const [connection,setConnection]=useState<Connection>('connecting');
+  const transport=useRef<ReturnType<typeof createTransport> | null>(null);
+  if(!transport.current) transport.current=createTransport(apiUrl,setConnection);
   const [loading, setLoading] = useState(true); const [online, setOnline] = useState(true); const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null); const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
   const busy = useRef(false); const active = useRef(true); const writes = useRef(Promise.resolve());
@@ -56,9 +61,9 @@ function useNestState() {
   async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(`${apiUrl}${path}`, { method: options.method || 'GET', headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token.current ? { Authorization: `Bearer ${token.current}` } : {}) }, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: AbortSignal.timeout(12000) });
+      response = await transport.current!(path, { method: options.method || 'GET', headers: { ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token.current ? { Authorization: `Bearer ${token.current}` } : {}) }, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: AbortSignal.timeout(12000) });
       setOnline(true);
-    } catch { setOnline(false); throw new Error('Cannot reach NestWise. Your saved logs remain on this device.'); }
+    } catch(e) { setOnline(false); throw e; }
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status}).`), { status: response.status });
     return data as T;
@@ -74,7 +79,7 @@ function useNestState() {
     replace({ ...current, householdId: id, cache: cached ? JSON.parse(cached) as Cache : null });
     const snapshot = await request<Snapshot>(`/households/${id}/snapshot`);
     const latest = stateRef.current;
-    await persist({ ...latest, cache: { snapshot, queue: latest.cache?.queue || [], conflicts: latest.cache?.conflicts || [] } });
+    await persist({ ...latest, cache: { ...latest.cache, snapshot, queue: latest.cache?.queue || [], conflicts: latest.cache?.conflicts || [] } });
     } finally { switching.current = false; if (syncAgain.current) { syncAgain.current = false; void syncRef.current(); } }
   }
   async function refresh() {
@@ -101,10 +106,17 @@ function useNestState() {
         const mutation = current.cache!.queue.find(m => !current.cache!.conflicts.some(c => c.mutation.eventId === m.eventId));
         if (!mutation) break;
         const [result] = await request<MutationResult[]>(`/households/${current.householdId}/sync`, { method: 'POST', body: [mutation] });
-        await editCache(cache => ({ snapshot: applyResult(cache.snapshot, result),
+        await editCache(cache => ({ ...cache, snapshot: applyResult(cache.snapshot, result),
           queue: cache.queue.filter(m => m.mutationId !== mutation.mutationId),
           conflicts: result.status === 'conflict' ? [...cache.conflicts, { mutation, result }] : cache.conflicts }));
         current = stateRef.current;
+      }
+      while (current.cache!.foodQueue?.length) {
+        const mutation=current.cache!.foodQueue.find(m=>!current.cache!.foodConflicts?.some(c=>c.mutation.foodId===m.foodId));
+        if(!mutation) break;
+        const result=await request<FoodResult>(`/households/${current.householdId}/foods/sync`,{method:'POST',body:mutation});
+        await editCache(cache=>({...cache,snapshot:{...cache.snapshot,foods:applyFoodResult(cache.snapshot.foods || [],result,mutation.foodId)},foodQueue:(cache.foodQueue || []).filter(m=>m.mutationId!==mutation.mutationId),foodConflicts:result.status==='conflict'?[...(cache.foodConflicts || []),{mutation,result}]:cache.foodConflicts}));
+        current=stateRef.current;
       }
       if (current.cache!.snapshot.revision === undefined) {
         const snapshot = await request<Snapshot>(`/households/${current.householdId}/snapshot`);
@@ -113,7 +125,7 @@ function useNestState() {
         let more = true;
         while (more) {
           current = stateRef.current;
-          const page = await request<ChangePage>(`/households/${current.householdId}/changes?after=${current.cache!.snapshot.revision}`);
+          const page = await request<ChangePage>(`/households/${current.householdId}/changes?after=${current.cache!.snapshot.revision}&includeFoods=1`);
           await editCache(cache => ({ ...cache, snapshot: applyChanges(cache.snapshot, page.changes, current.user!.id) }));
           more = page.hasMore;
         }
@@ -202,8 +214,17 @@ function useNestState() {
     if (loading || !localNotificationsSupported) return;
     void reconcileNotifications(notificationsEnabled && realtime !== 'denied' ? state.cache?.snapshot.reminders || [] : []).catch(() => setError('Could not update device reminders. Open the app to check current reminders.'));
   }, [state.cache?.snapshot.reminders, notificationsEnabled, loading, realtime]);
-  const snapshot = state.cache && state.user ? { ...state.cache.snapshot, events: optimisticEvents(state.cache.snapshot, state.cache.queue, state.user) } : null;
-  return { ...state, snapshot, loading, online, syncing, realtime, error, theme,
+  const snapshot = state.cache && state.user ? { ...state.cache.snapshot, events: optimisticEvents(state.cache.snapshot, state.cache.queue, state.user), foods: optimisticFoods(state.cache.snapshot.foods || [],state.cache.foodQueue || [],state.cache.snapshot.household.id) } : null;
+  async function saveFood(id:string,food:FoodInput,baseVersion:number) {
+    if(endingSession.current || switching.current) throw new Error('Wait for the current account operation to finish.');
+    const cache=stateRef.current.cache;
+    if(!cache || realtime==='denied' || cache.snapshot.household.role==='viewer') throw new Error('Your role does not allow catalog changes.');
+    if(cache.foodConflicts?.some(c=>c.mutation.foodId===id)) throw new Error('Review this food conflict before editing again.');
+    const mutation=foodMutationSchema.parse({mutationId:Crypto.randomUUID(),foodId:id,baseVersion,food});
+    await editCache(cache=>({...cache,foodQueue:[...(cache.foodQueue || []),mutation]}));void sync();
+  }
+  return { ...state, snapshot, saveFood, foodQueue:state.cache?.foodQueue || [], foodConflicts:state.cache?.foodConflicts || [],
+    discardFoodEdits:async(foodId:string)=>{if(busy.current)throw new Error('Wait for synchronization to finish.');await editCache(cache=>({...cache,foodQueue:cache.foodQueue?.filter(m=>m.foodId!==foodId),foodConflicts:cache.foodConflicts?.filter(c=>c.mutation.foodId!==foodId)}));void sync();}, loading, online, syncing, connection, realtime, error, theme,
     exportLocalBackup: async () => {
       await writes.current;
       const user = stateRef.current.user; if (!user) throw new Error('Restore your session before exporting.');
@@ -234,7 +255,7 @@ function useNestState() {
         const current = stateRef.current;
         const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(`nestwise.cache.${current.user!.id}.`));
         const caches = await AsyncStorage.multiGet(keys);
-        if (caches.some(([, value]) => { const cache = value ? JSON.parse(value) as Cache : null; return cache && (cache.queue.length || cache.conflicts.length); })) throw new Error('Resolve pending logs in every cached household before deleting your account. Export a local backup if access has been removed.');
+        if (caches.some(([, value]) => { const cache = value ? JSON.parse(value) as Cache : null; return cache && (cache.queue.length || cache.conflicts.length || cache.foodQueue?.length || cache.foodConflicts?.length); })) throw new Error('Resolve pending logs in every cached household before deleting your account. Export a local backup if access has been removed.');
         await request('/auth/account', { method: 'DELETE', body: { confirmation, password } });
         await reconcileNotifications([]);
         await AsyncStorage.multiRemove([...keys, `nestwise.meta.${current.user!.id}`]);
@@ -247,7 +268,7 @@ function useNestState() {
       try {
         await writes.current;
         const current = stateRef.current;
-        if (current.cache?.queue.length || current.cache?.conflicts.length) throw new Error('Finish synchronization and resolve conflicts before deleting this household.');
+        if (current.cache?.queue.length || current.cache?.conflicts.length || current.cache?.foodQueue?.length || current.cache?.foodConflicts?.length) throw new Error('Finish synchronization and resolve conflicts before deleting this household.');
         await request(`/households/${current.householdId}`, { method: 'DELETE', body: { confirmation } });
         await reconcileNotifications([]);
         await AsyncStorage.removeItem(`nestwise.cache.${current.user!.id}.${current.householdId}`);
@@ -260,10 +281,10 @@ function useNestState() {
       endingSession.current = true;
       try {
       await writes.current;
-      if (busy.current || stateRef.current.cache?.queue.length || stateRef.current.cache?.conflicts.length) throw new Error('Finish synchronization and resolve conflicts before signing out.');
+      if (busy.current || stateRef.current.cache?.queue.length || stateRef.current.cache?.conflicts.length || stateRef.current.cache?.foodQueue?.length || stateRef.current.cache?.foodConflicts?.length) throw new Error('Finish synchronization and resolve conflicts before signing out.');
       const keys = (await AsyncStorage.getAllKeys()).filter(k => k.startsWith(`nestwise.cache.${stateRef.current.user!.id}.`));
       const caches = await AsyncStorage.multiGet(keys);
-      if (caches.some(([, value]) => { const cache = value ? JSON.parse(value) as Cache : null; return cache && (cache.queue.length || cache.conflicts.length); })) throw new Error('Another household has pending logs or conflicts. Switch to that household and resolve them before signing out.');
+      if (caches.some(([, value]) => { const cache = value ? JSON.parse(value) as Cache : null; return cache && (cache.queue.length || cache.conflicts.length || cache.foodQueue?.length || cache.foodConflicts?.length); })) throw new Error('Another household has pending logs or conflicts. Switch to that household and resolve them before signing out.');
       await request('/auth/logout', { method: 'POST' });
       await reconcileNotifications([]);
       await AsyncStorage.multiRemove([...keys, `nestwise.meta.${stateRef.current.user!.id}`]); await credential.remove(); token.current = null; replace(initial);

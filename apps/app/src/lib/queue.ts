@@ -8,6 +8,7 @@ export function applyChanges(snapshot: Snapshot, changes: HouseholdChange[], use
       next.members = [...next.members.filter(m => m.userId !== change.entityId), ...(change.record ? [change.record] : [])];
       if (change.entityId === userId && change.record) next.household = { ...next.household, role: change.record.role };
     } else if (change.kind === 'events') next.events = [...next.events.filter(e => e.id !== change.entityId), ...(change.record ? [change.record] : [])];
+    else if (change.kind === 'foods') next.foods = [...(next.foods || []).filter(f=>f.id!==change.entityId),...(change.record?[change.record]:[])];
     else if (change.kind === 'children') next.children = [...next.children.filter(c => c.id !== change.entityId), ...(change.record ? [change.record] : [])];
     else next.reminders = [...next.reminders.filter(r => r.id !== change.entityId), ...(change.record ? [change.record] : [])];
   }

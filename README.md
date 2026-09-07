@@ -53,6 +53,8 @@ Build both workspaces and migrate first. Playwright starts the built API and ser
 
 ## Package map
 
+See [the care depth milestone](docs/care-depth-milestone.md) for the richer logging fields, food-library synchronization, report views, verification results and required migration order.
+
 - `apps/app`: Expo Router routes, inherited responsive shell/theme, forms, durable mutation queue and API client.
 - `apps/api`: Fastify routes, session authentication, role checks, PostgreSQL transactions, schema and integration tests.
 - `packages/shared`: strict Zod contracts, conservative routine estimates, explicit quick-phrase parser and domain tests.

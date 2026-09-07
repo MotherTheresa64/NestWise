@@ -82,7 +82,7 @@ export function Page({ title, subtitle, action, children }: { title: string; sub
     <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}><View style={{ gap: 8, flex: 1, minWidth: 200 }}><Heading>{title}</Heading><Label muted>{subtitle}</Label></View>{action}</Row>{children}
   </ScrollView>;
 }
-export function Dialog({ visible, title, children, onClose }: { visible: boolean; title: string; children: ReactNode; onClose: () => void }) {
+export function Dialog({ visible, title, children, onClose, footer }: { visible: boolean; title: string; children: ReactNode; onClose: () => void; footer?: ReactNode }) {
   const c = usePalette();
   const [reducedMotion, setReducedMotion] = useState(true);
   useEffect(() => { let active = true; void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (active) setReducedMotion(value); }); const listener = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion); return () => { active = false; listener.remove(); }; }, []);
@@ -91,6 +91,7 @@ export function Dialog({ visible, title, children, onClose }: { visible: boolean
       <View role="dialog" accessibilityLabel={title} accessibilityViewIsModal style={{ maxWidth: 740, width: '100%', maxHeight: '92%', alignSelf: 'center', backgroundColor: c.bg, borderRadius: 24, overflow: 'hidden' }}>
         <Row style={{ padding: 20, justifyContent: 'space-between', borderBottomWidth: 1, borderColor: c.border }}><Heading small>{title}</Heading><Button title="Close" variant="ghost" onPress={onClose} /></Row>
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22, gap: 18 }}>{children}</ScrollView>
+        {footer && <View style={{padding:16,borderTopWidth:1,borderColor:c.border}}>{footer}</View>}
       </View>
     </View>
   </Modal>;
