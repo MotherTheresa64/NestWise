@@ -8,7 +8,8 @@ import { applyChanges, applyResult, optimisticEvents } from './queue';
 import { enableLocalNotifications, localNotificationsSupported, reconcileNotifications } from './notifications';
 import { shareBackup } from './backup';
 
-const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3001';
+const apiUrl = process.env.EXPO_PUBLIC_API_URL || (__DEV__ ? 'http://localhost:3001' : '');
+if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL must be configured when building NestWise.');
 type RequestOptions = { method?: string; body?: unknown };
 type Conflict = { mutation: SyncMutation; result: MutationResult };
 type Cache = { snapshot: Snapshot; queue: SyncMutation[]; conflicts: Conflict[] };

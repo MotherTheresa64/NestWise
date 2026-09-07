@@ -4,13 +4,14 @@ import type pg from 'pg';
 import type { WebSocket } from 'ws';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { origins } from './config';
 
 /** Pushes invalidations only. Actual care data is fetched over the authorized cursor API. */
 export async function registerRealtime(app: FastifyInstance, pool: pg.Pool) {
   await app.register(websocket, { options: { maxPayload: 2048 } });
   const peers = new Map<WebSocket, { householdId: string; tokenHash: string }>();
   let listener: pg.PoolClient | null = null; let reconnect: ReturnType<typeof setTimeout> | undefined; let stopped = false;
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8081').split(',');
+  const allowedOrigins = origins();
   async function authorized(peer: { householdId: string; tokenHash: string }) {
     const result = await pool.query('SELECT 1 FROM sessions s JOIN members m ON m.user_id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND m.household_id=$2', [peer.tokenHash, peer.householdId]);
     return !!result.rowCount;
@@ -39,10 +40,11 @@ export async function registerRealtime(app: FastifyInstance, pool: pg.Pool) {
       client.on('notification', message => { for (const [socket, peer] of peers) if (peer.householdId === message.payload) void signal(socket, 'changed'); });
       await client.query('LISTEN nestwise_changes');
       for (const socket of peers.keys()) void signal(socket, 'ready');
-    } catch { if (!stopped) reconnect = setTimeout(() => void listen(), 1000); }
+    } catch { if (listener) { listener.release(true); listener = null; } if (!stopped) reconnect = setTimeout(() => void listen(), 1000); }
   }
   app.get('/realtime', { websocket: true, preValidation: async (request, reply) => {
     if (request.headers.origin && !allowedOrigins.includes(request.headers.origin)) return reply.code(403).send({ error: 'Origin not allowed' });
+    if (app.websocketServer.clients.size >= 500) return reply.code(503).send({ error: 'Realtime capacity reached; retry later' });
   } }, socket => {
     let authenticating = false;
     const deadline = setTimeout(() => socket.close(4401, 'Authentication required'), 5000);
@@ -69,6 +71,7 @@ export async function registerRealtime(app: FastifyInstance, pool: pg.Pool) {
   app.addHook('preClose', async () => {
     stopped = true; clearInterval(heartbeat); clearTimeout(reconnect);
     for (const socket of peers.keys()) socket.close(1001, 'Server stopping');
-    if (listener) { const client = listener; listener = null; await client.query('UNLISTEN nestwise_changes'); client.release(); }
+    if (listener) { const client = listener; listener = null; try { await client.query('UNLISTEN nestwise_changes'); } finally { client.release(true); } }
   });
+  return () => !stopped && listener !== null;
 }

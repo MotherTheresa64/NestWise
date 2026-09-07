@@ -5,6 +5,7 @@
 node_modules/
 dist/
 dist-native/
+dist-production/
 .expo/
 coverage/
 playwright-report/

@@ -1,6 +1,6 @@
 # NestWise
 
-An Expo / React Native family-care app with a TypeScript Fastify API and PostgreSQL. This repository is a working development milestone, **not ready for production family health data**. See the [current product milestone](docs/product-milestone.md) for verified features and release gaps, and [the initial foundation audit](docs/implementation-status.md) for history.
+An Expo / React Native family-care app with a TypeScript Fastify API and PostgreSQL. This repository is a working development milestone, **not ready for production family health data**. See the [production deployment guide](docs/production-deployment.md) for Vercel/Render/PostgreSQL/email setup and release gates, the [security review](docs/production-security-review.md), the [current product milestone](docs/product-milestone.md) for verified features, and [the initial foundation audit](docs/implementation-status.md) for history.
 
 Current care updates use authorized WebSockets and PostgreSQL-backed incremental sync. Run migrations before starting the new API. The existing offline mutation queue and version conflicts remain in use. Editing, child archiving, recurring/snoozed reminders, session/membership safety controls and local backups are available. Reports/PDF export, expanded local phrase parsing and routine estimates, account/privacy flows, and native cache encryption are now implemented. Native capabilities still require device verification; email delivery is not configured.
 
@@ -36,6 +36,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run build:api
+# Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_WEB_URL in the shell before exporting.
 npm run build:web
 ```
 

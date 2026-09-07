@@ -7,7 +7,7 @@
     "start": "expo start",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "build": "expo export --platform web"
+    "build": "expo export --platform web --clear"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.0",

@@ -4,7 +4,7 @@ import { useNest } from '../src/lib/store';
 import { Button, Card, Choice, ErrorMessage, Field, Label, Page, useTask } from '../src/components/ui';
 export default function AccountHelp() {
   const params = useLocalSearchParams<{ token?: string; mode?: string }>(); const nest = useNest(); const router = useRouter(); const task = useTask();
-  const [mode, setMode] = useState(params.mode === 'verify' ? 'verify' : params.token ? 'reset' : 'request');
+  const [mode, setMode] = useState(params.mode === 'verify' ? 'verify' : params.mode === 'reset' || params.token ? 'reset' : 'request');
   const [token, setToken] = useState(params.token || ''); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [message, setMessage] = useState('');
   return <Page title="A little help signing in" subtitle="Recover access or confirm your email address securely."><Card>
     <Choice label="What would you like to do?" value={mode} options={[{value:'request',label:'Send recovery email'},{value:'reset',label:'Reset password'},{value:'verify',label:'Verify email'}]} onChange={value=>{setMode(value);setMessage('');task.setError(null);}} />

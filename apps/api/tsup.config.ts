@@ -1,2 +1,4 @@
 import { defineConfig } from 'tsup';
-export default defineConfig({ entry: ['src/server.ts'], format: ['esm'], noExternal: ['@nestwise/shared'], clean: true, sourcemap: true });
+import { copyFile } from 'node:fs/promises';
+export default defineConfig({ entry: ['src/server.ts', 'src/migrate.ts'], format: ['esm'], noExternal: ['@nestwise/shared'], clean: true, sourcemap: true,
+  onSuccess: async () => { await copyFile('src/schema.sql', 'dist/schema.sql'); } });

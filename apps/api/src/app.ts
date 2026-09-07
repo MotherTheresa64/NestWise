@@ -1,4 +1,5 @@
 import { registerPrivacyRoutes } from './privacy';
+import { origins, proxyTrust } from './config';
 import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -18,17 +19,18 @@ type Access = { user: User; role: Role; householdId: string };
 const paramsSchema = z.object({ householdId: idSchema });
 
 export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: AccountMail } = {}) {
-  const app = Fastify({ logger: false, bodyLimit: 256 * 1024 });
-  await app.register(cors, { origin: (process.env.CORS_ORIGIN || 'http://localhost:8081').split(','), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  const app = Fastify({ logger: process.env.NODE_ENV === 'production', disableRequestLogging: true, trustProxy: proxyTrust(), bodyLimit: 256 * 1024, requestTimeout: 30000 });
+  await app.register(cors, { origin: origins(), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
+  app.addHook('onSend', async (_request, reply) => { reply.header('Cache-Control', 'no-store'); });
   await app.register(helmet);
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
-  await registerRealtime(app, pool);
+  const realtimeReady = await registerRealtime(app, pool);
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ error: error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     const e = error as Error & { statusCode?: number; code?: string };
     if (e.code === '23505') return reply.code(409).send({ error: 'This record already exists.' });
     const status = e.statusCode || 500;
-    if (status >= 500) app.log.error(error);
+    if (status >= 500) app.log.error({ requestId: _request.id, status }, 'Request failed');
     return reply.code(status).send({ error: status >= 500 ? 'Unable to complete the request.' : e.message });
   });
   async function userFor(request: FastifyRequest): Promise<User> {
@@ -57,6 +59,11 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
     if (result.rowCount !== new Set(childIds).size) fail(400, 'Every child must belong to this household.');
   }
   app.get('/health', async () => { await pool.query('SELECT 1'); return { status: 'ok' }; });
+  app.get('/live', { config: { rateLimit: false } }, async () => ({ status: 'ok' }));
+  app.get('/ready', { config: { rateLimit: false } }, async (_request, reply) => {
+    try { await pool.query('SELECT 1 FROM users LIMIT 1'); if (!realtimeReady()) throw new Error('Listener unavailable'); return { status: 'ready' }; }
+    catch { return reply.code(503).send({ status: 'unavailable' }); }
+  });
   app.post('/auth/register', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async request => {
     const input = registerSchema.parse(request.body);
     const salt = randomBytes(16).toString('hex');
