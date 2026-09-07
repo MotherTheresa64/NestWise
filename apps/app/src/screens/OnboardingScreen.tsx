@@ -12,5 +12,5 @@ export function HouseholdJoinCreate({ onDone }: { onDone?: () => void }) {
 }
 export function OnboardingScreen() {
   const nest = useNest(); const task = useTask();
-  return <Page title={`Welcome, ${nest.user?.name.split(' ')[0] || 'there'}`} subtitle="Every family has its own rhythm. Let's find yours." action={<Button title="Sign out" variant="ghost" onPress={() => void task.run(nest.logout)} />}><HouseholdJoinCreate /><ErrorMessage message={task.error || nest.error} /></Page>;
+  return <Page title={`Welcome, ${nest.user?.name.split(' ')[0] || 'there'}`} subtitle="Every family has its own rhythm. Let's find yours." action={<Button title="Sign out" variant="ghost" onPress={() => void task.run(nest.logout)} />}><HouseholdJoinCreate /><Card><Heading small>Saved care on this device</Heading><Label>Export cached care and pending edits, including households you no longer have server access to. The backup contains private family information.</Label><Button title="Export local care backup" variant="secondary" disabled={task.pending} onPress={() => void task.run(nest.exportLocalBackup)} /></Card><ErrorMessage message={task.error || nest.error} /></Page>;
 }

@@ -1,6 +1,29 @@
 {
-  "name": "@nestwise/api", "version": "0.1.0", "private": true, "type": "module",
-  "scripts": { "dev": "tsx watch --env-file=../../.env src/server.ts", "start": "node --env-file=../../.env dist/server.js", "typecheck": "tsc --noEmit", "build": "tsup", "db:migrate": "tsx --env-file=../../.env src/migrate.ts" },
-  "dependencies": { "@nestwise/shared": "*", "fastify": "^5.6.0", "@fastify/cors": "^11.1.0", "@fastify/helmet": "^13.0.2", "@fastify/rate-limit": "^10.3.0", "pg": "^8.16.3", "zod": "^3.24.2" },
-  "devDependencies": { "@types/pg": "^8.15.5", "tsx": "^4.20.6", "tsup": "^8.5.0" }
+  "name": "@nestwise/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=../../.env src/server.ts",
+    "start": "node --env-file=../../.env dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "build": "tsup",
+    "db:migrate": "tsx --env-file=../../.env src/migrate.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/websocket": "^11.3.0",
+    "@nestwise/shared": "*",
+    "fastify": "^5.6.0",
+    "pg": "^8.16.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6"
+  }
 }

@@ -23,7 +23,19 @@ export const detailsSchema = z.object({
   medicineName: z.string().trim().max(200).optional(),
   food: z.string().trim().max(1000).optional(),
   measurement: z.enum(['weight', 'height', 'head']).optional(),
-  sleepKind: z.enum(['nap', 'night']).optional()
+  sleepKind: z.enum(['nap', 'night']).optional(),
+  sleepLocation: z.string().trim().max(100).optional(),
+  leftMinutes: z.number().finite().min(0).max(1440).optional(),
+  rightMinutes: z.number().finite().min(0).max(1440).optional(),
+  foodTexture: z.enum(['puree', 'mashed', 'finger food', 'family food']).optional(),
+  reaction: z.string().trim().max(500).optional(),
+  stoolColor: z.string().trim().max(80).optional(),
+  stoolConsistency: z.enum(['loose', 'soft', 'formed', 'hard']).optional(),
+  medicineRoute: z.enum(['oral', 'topical', 'inhaled', 'other']).optional(),
+  temperatureMethod: z.enum(['axillary', 'oral', 'rectal', 'ear', 'forehead', 'other']).optional(),
+  symptomName: z.string().trim().max(200).optional(),
+  severity: z.enum(['mild', 'moderate', 'severe']).optional(),
+  customLabel: z.string().trim().max(100).optional()
 }).strict();
 export type EventDetails = z.infer<typeof detailsSchema>;
 export const eventInputSchema = z.object({
@@ -75,7 +87,7 @@ export const childInputSchema = z.object({
   enabledCategories: z.array(categorySchema).default([...categories])
 }).strict();
 export type ChildInput = z.infer<typeof childInputSchema>;
-export interface Child extends ChildInput { id: string; householdId: string; createdAt: string }
+export interface Child extends ChildInput { id: string; householdId: string; createdAt: string; version?: number }
 export interface User { id: string; email: string; name: string }
 export interface Household { id: string; name: string; timezone: string; role: Role }
 export interface Member { userId: string; name: string; email: string; role: Role }
@@ -88,8 +100,13 @@ export const reminderInputSchema = z.object({
   repeatMinutes: z.number().int().min(5).max(525600).nullable().default(null)
 }).strict();
 export type ReminderInput = z.infer<typeof reminderInputSchema>;
-export interface Reminder extends ReminderInput { id: string; householdId: string; completedAt: string | null }
-export interface Snapshot { household: Household; children: Child[]; events: CareEvent[]; members: Member[]; reminders: Reminder[]; serverTime: string }
+export interface Reminder extends ReminderInput { id: string; householdId: string; completedAt: string | null; version?: number }
+export interface Snapshot { household: Household; children: Child[]; events: CareEvent[]; members: Member[]; reminders: Reminder[]; serverTime: string; revision?: number }
+export type HouseholdChange = { revision: number; entityId: string } & (
+  { kind: 'events'; record: CareEvent | null } | { kind: 'children'; record: Child | null } |
+  { kind: 'reminders'; record: Reminder | null } | { kind: 'members'; record: Member | null }
+);
+export interface ChangePage { changes: HouseholdChange[]; hasMore: boolean }
 export const mutationSchema = z.object({
   mutationId: idSchema,
   operation: z.enum(['create', 'update', 'delete']),

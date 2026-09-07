@@ -4,6 +4,8 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { registerRealtime } from './realtime';
+import { registerAccountRoutes, type AccountMail } from './account';
 import type pg from 'pg';
 import { z } from 'zod';
 import { canManage, canWrite, childInputSchema, householdInputSchema, idSchema, loginSchema, mutationSchema, registerSchema, reminderInputSchema, type CareEvent, type Reminder, type Role, type User } from '@nestwise/shared';
@@ -14,11 +16,12 @@ const fail = (statusCode: number, message: string): never => { throw Object.assi
 type Access = { user: User; role: Role; householdId: string };
 const paramsSchema = z.object({ householdId: idSchema });
 
-export async function buildApi(pool: pg.Pool) {
+export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: AccountMail } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 256 * 1024 });
   await app.register(cors, { origin: (process.env.CORS_ORIGIN || 'http://localhost:8081').split(','), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   await app.register(helmet);
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
+  await registerRealtime(app, pool);
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ error: error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     const e = error as Error & { statusCode?: number; code?: string };
@@ -33,6 +36,7 @@ export async function buildApi(pool: pg.Pool) {
     const result = await pool.query('SELECT u.id,u.email,u.name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()', [hash(token)]);
     return result.rows[0] || fail(401, 'Your session has expired. Please sign in again.');
   }
+  registerAccountRoutes(app, pool, userFor, options.deliverAccountMail);
   async function access(request: FastifyRequest, mode: 'read' | 'write' | 'manage' = 'read'): Promise<Access> {
     const user = await userFor(request);
     const { householdId } = paramsSchema.parse(request.params);
@@ -96,18 +100,32 @@ export async function buildApi(pool: pg.Pool) {
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
       const household = (await client.query('SELECT * FROM households WHERE id=$1', [householdId])).rows[0];
-      const children = (await client.query('SELECT id,data,created_at FROM children WHERE household_id=$1 ORDER BY created_at', [householdId])).rows.map(r => ({ ...r.data, id: r.id, householdId, createdAt: r.created_at.toISOString() }));
+      const children = (await client.query('SELECT id,data,created_at,version FROM children WHERE household_id=$1 ORDER BY created_at', [householdId])).rows.map(r => ({ ...r.data, id: r.id, householdId, createdAt: r.created_at.toISOString(), version: r.version }));
       const events = (await client.query('SELECT data FROM events WHERE household_id=$1 ORDER BY updated_at DESC', [householdId])).rows.map(r => r.data);
       const members = (await client.query('SELECT u.id AS "userId",u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.household_id=$1', [householdId])).rows;
       const reminders = (await client.query('SELECT data FROM reminders WHERE household_id=$1', [householdId])).rows.map(r => r.data);
       await client.query('COMMIT');
-      return { household: { ...household, role }, children, events, members, reminders, serverTime: new Date().toISOString() };
+      return { household: { ...household, role }, revision: Number(household.revision), children, events, members, reminders, serverTime: new Date().toISOString() };
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  });
+  app.get('/households/:householdId/changes', async request => {
+    const { householdId } = await access(request);
+    const { after } = z.object({ after: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }).parse(request.query);
+    const rows = (await pool.query('SELECT revision,kind,entity_id AS "entityId",record FROM changes WHERE household_id=$1 AND revision>$2 ORDER BY revision LIMIT 201', [householdId, after])).rows;
+    return { changes: rows.slice(0, 200).map(r => ({ ...r, revision: Number(r.revision) })), hasMore: rows.length > 200 };
   });
   app.post('/households/:householdId/children', async request => {
     const { householdId } = await access(request, 'manage'); const input = childInputSchema.parse(request.body); const id = randomUUID();
     const result = await pool.query('INSERT INTO children(id,household_id,data) VALUES($1,$2,$3) RETURNING created_at', [id, householdId, input]);
-    return { ...input, id, householdId, createdAt: result.rows[0].created_at.toISOString() };
+    return { ...input, id, householdId, createdAt: result.rows[0].created_at.toISOString(), version: 1 };
+  });
+  app.patch('/households/:householdId/children/:id', async request => {
+    const { householdId } = await access(request, 'manage');
+    const { id } = z.object({ id: idSchema }).parse(request.params);
+    const input = z.object({ baseVersion: z.number().int().positive(), child: childInputSchema }).strict().parse(request.body);
+    const result = await pool.query('UPDATE children SET data=$1,version=version+1 WHERE id=$2 AND household_id=$3 AND version=$4 RETURNING *', [input.child, id, householdId, input.baseVersion]);
+    if (!result.rowCount) fail(409, 'This child was changed or is unavailable. Refresh and review before saving again.');
+    const row = result.rows[0]; return { ...row.data, id, householdId, createdAt: row.created_at.toISOString(), version: row.version };
   });
   app.post('/households/:householdId/sync', async request => {
     const { user, householdId } = await access(request, 'write');
@@ -117,6 +135,8 @@ export async function buildApi(pool: pg.Pool) {
       await client.query('BEGIN');
       // Serializes mutations within a household, including retries with the same mutation ID.
       await client.query('SELECT id FROM households WHERE id=$1 FOR UPDATE', [householdId]);
+      const membership = (await client.query('SELECT m.role FROM members m JOIN sessions s ON s.user_id=m.user_id WHERE m.household_id=$1 AND m.user_id=$2 AND s.token_hash=$3 AND s.expires_at>now()', [householdId, user.id, hash(request.headers.authorization!.slice(7))])).rows[0];
+      if (!membership || !canWrite(membership.role)) return fail(403, 'Your permission to log care has ended.');
       const results = [];
       for (const mutation of mutations) {
         const receipt = (await client.query('SELECT * FROM mutation_receipts WHERE household_id=$1 AND mutation_id=$2', [householdId, mutation.mutationId])).rows[0];
@@ -170,7 +190,7 @@ export async function buildApi(pool: pg.Pool) {
   app.post('/households/:householdId/reminders', async request => {
     const { householdId } = await access(request, 'write'); const input = reminderInputSchema.parse(request.body);
     await checkChildren(pool, householdId, input.childIds);
-    const reminder = { ...input, id: randomUUID(), householdId, completedAt: null };
+    const reminder = { ...input, id: randomUUID(), householdId, completedAt: null, version: 1 };
     await pool.query('INSERT INTO reminders VALUES($1,$2,$3)', [reminder.id, householdId, reminder]); return reminder;
   });
   app.post('/households/:householdId/reminders/:id/complete', async request => {
@@ -182,12 +202,31 @@ export async function buildApi(pool: pg.Pool) {
       if (!reminder) return fail(404, 'Reminder not found.');
       if (!reminder.completedAt) {
         reminder.completedAt = new Date().toISOString();
+        reminder.version = (reminder.version || 1) + 1;
         await client.query('UPDATE reminders SET data=$1 WHERE id=$2', [reminder, id]);
         if (reminder.repeatMinutes) {
           const step = reminder.repeatMinutes * 60000; const previous = Date.parse(reminder.dueAt);
-          const next = { ...reminder, id: randomUUID(), dueAt: new Date(previous + Math.max(1, Math.floor((Date.now() - previous) / step) + 1) * step).toISOString(), completedAt: null };
+          const next = { ...reminder, id: randomUUID(), version: 1, dueAt: new Date(previous + Math.max(1, Math.floor((Date.now() - previous) / step) + 1) * step).toISOString(), completedAt: null };
           await client.query('INSERT INTO reminders VALUES($1,$2,$3)', [next.id, householdId, next]);
         }
+      }
+      await client.query('COMMIT'); return reminder;
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+  });
+  app.post('/households/:householdId/reminders/:id/snooze', async request => {
+    const { householdId } = await access(request, 'write'); const { id } = z.object({ id: idSchema }).parse(request.params);
+    const input = z.object({ dueAt: z.string().datetime(), baseVersion: z.number().int().positive() }).strict().parse(request.body);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const reminder = (await client.query('SELECT data FROM reminders WHERE id=$1 AND household_id=$2 FOR UPDATE', [id, householdId])).rows[0]?.data as Reminder | undefined;
+      if (!reminder) return fail(404, 'Reminder not found.');
+      if (reminder.completedAt) fail(409, 'This reminder is already complete.');
+      if (reminder.dueAt !== input.dueAt) {
+        if ((reminder.version || 1) !== input.baseVersion) fail(409, 'Another caregiver changed this reminder. Refresh and review.');
+        if (Date.parse(input.dueAt) <= Date.now()) fail(400, 'Choose a future snooze time.');
+        reminder.dueAt = input.dueAt; reminder.version = (reminder.version || 1) + 1;
+        await client.query('UPDATE reminders SET data=$1 WHERE id=$2', [reminder, id]);
       }
       await client.query('COMMIT'); return reminder;
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
@@ -195,6 +234,48 @@ export async function buildApi(pool: pg.Pool) {
   app.get('/households/:householdId/audit', async request => {
     const { householdId } = await access(request, 'manage');
     return (await pool.query('SELECT * FROM audit WHERE household_id=$1 ORDER BY id DESC LIMIT 200', [householdId])).rows;
+  });
+  app.get('/households/:householdId/invitations', async request => {
+    const { householdId } = await access(request, 'manage');
+    return (await pool.query('SELECT id,email,role,expires_at AS "expiresAt" FROM invitations WHERE household_id=$1 ORDER BY expires_at DESC', [householdId])).rows;
+  });
+  app.delete('/households/:householdId/invitations/:id', async request => {
+    const { householdId } = await access(request, 'manage'); const { id } = z.object({ id: idSchema }).parse(request.params);
+    await pool.query('DELETE FROM invitations WHERE household_id=$1 AND id=$2', [householdId, id]); return { ok: true };
+  });
+  app.post('/households/:householdId/membership', async request => {
+    const { householdId, user } = await access(request);
+    const input = z.discriminatedUnion('action', [
+      z.object({ action: z.literal('role'), userId: idSchema, role: z.enum(['admin', 'caregiver', 'viewer']) }).strict(),
+      z.object({ action: z.literal('remove'), userId: idSchema }).strict(),
+      z.object({ action: z.literal('transfer'), userId: idSchema, confirmation: z.literal('TRANSFER OWNERSHIP') }).strict(),
+      z.object({ action: z.literal('leave') }).strict(),
+    ]).parse(request.body);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM households WHERE id=$1 FOR UPDATE', [householdId]);
+      const members = (await client.query('SELECT user_id,role FROM members WHERE household_id=$1', [householdId])).rows;
+      const role = members.find(m => m.user_id === user.id)?.role;
+      const targetId = input.action === 'leave' ? user.id : input.userId;
+      const target = members.find(m => m.user_id === targetId);
+      if (!role || !target) return fail(404, 'Household member not found.');
+      if (input.action === 'leave') {
+        if (role === 'owner') return fail(409, 'Transfer ownership before leaving.');
+        await client.query('DELETE FROM members WHERE household_id=$1 AND user_id=$2', [householdId, user.id]);
+      } else {
+        if (role !== 'owner') return fail(403, 'Only the owner can change membership or transfer ownership.');
+        if (targetId === user.id || target.role === 'owner') return fail(409, 'Use ownership transfer or Leave household for your own membership.');
+        if (input.action === 'remove') await client.query('DELETE FROM members WHERE household_id=$1 AND user_id=$2', [householdId, targetId]);
+        if (input.action === 'role') await client.query('UPDATE members SET role=$1 WHERE household_id=$2 AND user_id=$3', [input.role, householdId, targetId]);
+        if (input.action === 'transfer') {
+          await client.query("UPDATE members SET role='admin' WHERE household_id=$1 AND user_id=$2", [householdId, user.id]);
+          await client.query("UPDATE members SET role='owner' WHERE household_id=$1 AND user_id=$2", [householdId, targetId]);
+        }
+      }
+      await client.query('INSERT INTO audit(household_id,user_id,action,entity_id) VALUES($1,$2,$3,$4)', [householdId, user.id, `membership:${input.action}`, targetId]);
+      await client.query('COMMIT'); return { ok: true };
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   });
   return app;
 }

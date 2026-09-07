@@ -1,16 +1,18 @@
-import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePalette } from '../theme';
 
 export function useTask() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const running = useRef(false);
   const run = async (action: () => Promise<unknown>) => {
-    if (pending) return;
+    if (running.current) return;
+    running.current = true;
     setPending(true); setError(null);
     try { await action(); } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.'); }
-    finally { setPending(false); }
+    finally { running.current = false; setPending(false); }
   };
   return { error, pending, run, setError };
 }
@@ -57,8 +59,8 @@ export function Choice<T extends string>({ label, options, value, onChange, mult
   const c = usePalette();
   return <View style={{ gap: 9 }}>{label && <Label style={{ fontWeight: '600', fontSize: 13 }}>{label}</Label>}
     <Row>{options.map(option => { const selected = Array.isArray(value) ? value.includes(option.value) : value === option.value;
-      return <Pressable key={option.value} accessibilityRole={multiple ? 'checkbox' : 'radio'} accessibilityState={{ checked: selected }} onPress={() => onChange(option.value)}
-        style={{ minHeight: 40, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1, borderColor: selected ? c.primary : c.border, backgroundColor: selected ? c.sage : c.surface }}>
+      return <Pressable key={option.value} accessibilityRole={multiple ? 'checkbox' : 'radio'} aria-checked={selected} accessibilityState={{ checked: selected }} onPress={() => onChange(option.value)}
+        style={{ minHeight: 44, borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, borderWidth: 1, borderColor: selected ? c.primary : c.border, backgroundColor: selected ? c.sage : c.surface }}>
         <Text style={{ color: c.text, fontSize: 13, fontWeight: selected ? '600' : '400' }}>{option.label}</Text>
       </Pressable>;
     })}</Row>
@@ -82,7 +84,9 @@ export function Page({ title, subtitle, action, children }: { title: string; sub
 }
 export function Dialog({ visible, title, children, onClose }: { visible: boolean; title: string; children: ReactNode; onClose: () => void }) {
   const c = usePalette();
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+  const [reducedMotion, setReducedMotion] = useState(true);
+  useEffect(() => { let active = true; void AccessibilityInfo.isReduceMotionEnabled().then(value => { if (active) setReducedMotion(value); }); const listener = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion); return () => { active = false; listener.remove(); }; }, []);
+  return <Modal visible={visible} transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
     <View style={{ flex: 1, backgroundColor: '#00000066', justifyContent: 'center', padding: 16 }}>
       <View role="dialog" accessibilityLabel={title} accessibilityViewIsModal style={{ maxWidth: 740, width: '100%', maxHeight: '92%', alignSelf: 'center', backgroundColor: c.bg, borderRadius: 24, overflow: 'hidden' }}>
         <Row style={{ padding: 20, justifyContent: 'space-between', borderBottomWidth: 1, borderColor: c.border }}><Heading small>{title}</Heading><Button title="Close" variant="ghost" onPress={onClose} /></Row>

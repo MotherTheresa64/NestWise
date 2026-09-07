@@ -52,7 +52,7 @@ export function Shell() {
           <View style={{ width: 33, height: 33, borderRadius: 11, backgroundColor: c.sage, justifyContent: 'center', alignItems: 'center' }}><Ionicons name="home-outline" size={17} color={c.primary} /></View>
           <Label style={{ fontWeight: '600', flexShrink: 1 }}>{nest.snapshot?.household.name || 'Choose household'}</Label><Ionicons name="chevron-down" size={14} color={c.muted} />
         </Pressable>
-        <Row><View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: nest.online ? c.primary : c.danger }} />{desktop && <Label muted style={{ fontSize: 12 }}>{!nest.online ? 'Offline' : nest.syncing ? 'Syncing' : nest.queue.length ? `${nest.queue.length} queued` : 'All up to date'}</Label>}
+        <Row><View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: nest.online ? c.primary : c.danger }} />{desktop && <Label muted style={{ fontSize: 12 }}>{!nest.online ? 'Offline' : nest.syncing ? 'Syncing' : nest.queue.length ? `${nest.queue.length} queued` : nest.realtime === 'connected' ? 'All up to date' : 'Live updates: ' + nest.realtime}</Label>}
           <Pressable accessibilityRole="button" accessibilityLabel="Open settings" onPress={() => navigate('/settings')} style={{ backgroundColor: c.lavender, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}><Label style={{ fontWeight: '600' }}>{nest.user.name.slice(0, 1).toUpperCase()}</Label></Pressable>
         </Row>
       </Row>
@@ -67,4 +67,3 @@ export function Shell() {
     <Dialog visible={switcher} title="Your households" onClose={() => setSwitcher(false)}><ErrorMessage message={task.error} />{nest.households.map(h => <Button key={h.id} title={`${h.name} (${h.role})${h.id === nest.householdId ? ' - current' : ''}`} variant="secondary" disabled={task.pending} onPress={() => void task.run(async () => { await nest.selectHousehold(h.id); setSwitcher(false); })} />)}<Button title="Create or join a household" variant="ghost" onPress={() => { setSwitcher(false); navigate('/household'); }} /></Dialog>
   </SafeAreaView>;
 }
-

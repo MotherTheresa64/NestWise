@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 test('family care journey: registration, siblings, confirmed logging, timer, offline reload, report and mobile layout', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
@@ -39,6 +40,13 @@ test('family care journey: registration, siblings, confirmed logging, timer, off
   await expect(page.getByText('Diaper · River', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByText('Diaper · River', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  const backupDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export local care backup', exact: true }).click();
+  const backupText = await readFile((await (await backupDownload).path())!, 'utf8');
+  const backup = JSON.parse(backupText);
+  expect(backup.households[0].data.queue).toHaveLength(1);
+  expect(backupText).not.toContain('"token"'); expect(backupText).not.toContain('password_hash');
   await page.unroute('http://localhost:3001/**');
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Sync now', exact: true }).click();

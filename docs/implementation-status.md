@@ -1,5 +1,7 @@
 # Inherited state and continuation
 
+**Historical foundation milestone.** For the current implementation, verification and remaining work, see [Realtime and care-management milestone](realtime-milestone.md). Statements below about polling, editing and account features describe the earlier checkpoint.
+
 ## Initial audit, 2026-09-06
 
 The repository had one commit (`8c2f0f6`), containing only a ten-byte README. All implementation was untracked. No work was reset or discarded.

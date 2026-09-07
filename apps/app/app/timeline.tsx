@@ -8,6 +8,7 @@ export const eventInput = (event: CareEvent): EventInput => ({ id: event.id, chi
 export default function Timeline() {
   const nest = useNest(); const snapshot = nest.snapshot!; const task = useTask(); const [editor, setEditor] = useState(false); const [deleting, setDeleting] = useState<CareEvent | null>(null);
   const [child, setChild] = useState('all'); const [category, setCategory] = useState('all'); const [search, setSearch] = useState(''); const [, tick] = useState(0);
+  const [editing, setEditing] = useState<CareEvent | undefined>(undefined);
   useEffect(() => { const id = setInterval(() => tick(n => n + 1), 30000); return () => clearInterval(id); }, []);
   const events = snapshot.events.filter(e => !e.deletedAt && (child === 'all' || e.childIds.includes(child)) && (category === 'all' || e.category === category) && `${e.notes} ${JSON.stringify(e.details)}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   const writable = canWrite(snapshot.household.role);
@@ -18,7 +19,7 @@ export default function Timeline() {
     {events.map(event => <Card key={event.id}><Row style={{ justifyContent: 'space-between' }}><Label style={{ fontWeight: '600', fontSize: 18 }}>{categoryLabels[event.category]} · {snapshot.children.filter(c => event.childIds.includes(c.id)).map(c => c.firstName).join(' & ')}</Label><Label muted>{formatDate(event.occurredAt, snapshot.household.timezone)} · {formatTime(event.occurredAt, snapshot.household.timezone)}</Label></Row>
       <Label>{Object.entries(event.details).map(([key, value]) => `${key}: ${value}`).join(' · ') || 'Care moment'}</Label>{event.notes ? <Label>{event.notes}</Label> : null}
       <Row><Label muted>Recorded by {event.createdByName}{nest.queue.some(m => m.eventId === event.id) ? ' · pending sync' : ''}</Label>{['sleep', 'nursing', 'pumping'].includes(event.category) && <Label>{elapsed(event.occurredAt, event.endedAt || new Date())}{!event.endedAt ? ' · running' : ''}</Label>}</Row>
-      {writable && <Row>{['sleep', 'nursing', 'pumping'].includes(event.category) && !event.endedAt && <Button title="Stop timer" disabled={task.pending} onPress={() => void task.run(() => nest.mutate({ ...eventInput(event), endedAt: new Date().toISOString() }, 'update', event.version))} />}<Button title="Delete log" variant="ghost" onPress={() => setDeleting(event)} /></Row>}
+      {writable && <Row>{['sleep', 'nursing', 'pumping'].includes(event.category) && !event.endedAt && <Button title="Stop timer" disabled={task.pending} onPress={() => void task.run(() => nest.mutate({ ...eventInput(event), endedAt: new Date().toISOString() }, 'update', event.version))} />}<Button title="Edit log" variant="secondary" onPress={() => setEditing(event)} /><Button title="Delete log" variant="ghost" onPress={() => setDeleting(event)} /></Row>}
     </Card>)}{editor && <EventEditor onClose={() => setEditor(false)} />}{deleting && <Confirm title="Delete care log?" description="This removes the log from the household timeline. The server retains an audit record." onClose={() => setDeleting(null)} onConfirm={() => nest.mutate(eventInput(deleting), 'delete', deleting.version)} />}
-  </Page>;
+  {editing && <EventEditor existing={editing} onClose={() => setEditing(undefined)} />}</Page>;
 }
