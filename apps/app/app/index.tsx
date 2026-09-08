@@ -1,3 +1,4 @@
+import { MobileHome } from '../src/components/MobileHome';
 import { sleepHours } from '../src/lib/report';
 import { dayStart, localDay } from '../src/lib/report-model';
 import { useState } from 'react';
@@ -9,7 +10,8 @@ import { EventEditor } from '../src/components/EventEditor';
 import { formatTime } from '../src/theme';
 import { useRouter } from 'expo-router';
 
-export default function Overview() {
+export default function Overview() { const mobile=useWindowDimensions().width<900;return mobile?<MobileHome/>:<DesktopOverview/>; }
+function DesktopOverview() {
   const nest = useNest(); const snapshot = nest.snapshot!; const [editor, setEditor] = useState(false); const [quick,setQuick]=useState<{category:Category;childIds:string[]} | null>(null); const router = useRouter();
   const wide = useWindowDimensions().width >= 1000; const children = snapshot.children.filter(c => c.active);
   const predictions = children.flatMap(c => predictRoutines(snapshot.events, c.id, new Date(), { timezone: c.timezone || snapshot.household.timezone, dateOfBirth: c.dateOfBirth }));

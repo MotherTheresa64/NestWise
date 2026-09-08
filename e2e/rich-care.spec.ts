@@ -24,8 +24,10 @@ test('mixed diaper, multi-food meal, repeat draft and report exploration remain 
   await dialog.getByRole('radio',{name:'mixed',exact:true}).click();await dialog.getByRole('radio',{name:'big',exact:true}).first().click();await dialog.getByRole('radio',{name:'medium',exact:true}).last().click();
   await dialog.getByRole('checkbox',{name:'Sage',exact:true}).click();await page.screenshot({path:info.outputPath('mixed-diaper-390.png')});
   await dialog.getByRole('button',{name:'Confirm and save',exact:true}).click();await page.goto('/timeline');await expect(page.getByText('Mixed diaper · big pee · medium poo',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Log care',exact:true}).click();dialog=page.getByRole('dialog',{name:'Log a little moment'});await dialog.getByRole('radio',{name:'Food',exact:true}).click();
+  await page.getByRole('button',{name:'Log care',exact:true}).click();await page.getByRole('button',{name:'Choose Food',exact:true}).click();dialog=page.getByRole('dialog',{name:'Log a little moment'});
   for(const name of ['Oatmeal','Banana']){await dialog.getByRole('textbox',{name:'Food',exact:true}).fill(name);await dialog.getByRole('button',{name:'Add food to meal',exact:true}).click();}
+  await dialog.getByRole('button',{name:'Add amount: Oatmeal',exact:true}).click();
+  expect(await dialog.evaluate(element=>[element,...element.querySelectorAll('*')].filter(e=>e instanceof HTMLElement && e.clientWidth>0 && e.scrollWidth>e.clientWidth+1 && getComputedStyle(e).overflowX==='auto').length)).toBe(0);
   await dialog.getByRole('textbox',{name:'Amount: Oatmeal',exact:true}).fill('2');await dialog.getByRole('radio',{name:'tbsp',exact:true}).first().click();await dialog.getByRole('radio',{name:'Enjoyed',exact:true}).first().click();
   await dialog.getByRole('checkbox',{name:'Possible sensitivity observed',exact:true}).last().click();await dialog.getByRole('textbox',{name:'Observation details: Banana',exact:true}).fill('A red patch noticed by caregiver');
   await page.setViewportSize({width:412,height:915});await page.screenshot({path:info.outputPath('meal-412.png')});await dialog.getByRole('button',{name:'Confirm and save',exact:true}).click();

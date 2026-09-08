@@ -1,8 +1,10 @@
+import type { ComponentProps } from 'react';
+import type { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'react-native';
 import { useNest } from './lib/store';
 
 const light = {
-  bg: '#F7F6F1', surface: '#FFFFFF', soft: '#EFEEE7', text: '#283B34', muted: '#748078',
+  bg: '#F7F6F1', surface: '#FFFFFF', soft: '#EFEEE7', text: '#283B34', muted: '#626F66',
   border: '#E2E6DD', primary: '#466650', primaryText: '#FFFFFF', sage: '#E4EDDF',
   lavender: '#EDE8F4', peach: '#FAEDDF', danger: '#A13F3F', dangerBg: '#FBECEC',
 };
@@ -22,10 +24,11 @@ export const categoryLabels: Record<string, string> = {
   symptom: 'Symptom', growth: 'Growth', teeth: 'Teeth', bath: 'Bath', routine: 'Routine',
   milestone: 'Milestone', custom: 'Other',
 };
-export const categoryIcons: Record<string, 'moon-outline' | 'water-outline' | 'restaurant-outline' | 'heart-outline' | 'leaf-outline' | 'medical-outline' | 'resize-outline' | 'sparkles-outline'> = {
-  sleep: 'moon-outline', nursing: 'heart-outline', bottle: 'water-outline', pumping: 'water-outline',
-  food: 'restaurant-outline', water: 'water-outline', diaper: 'leaf-outline', potty: 'leaf-outline',
-  medicine: 'medical-outline', temperature: 'medical-outline', symptom: 'medical-outline', growth: 'resize-outline',
+export const categoryIcons: Record<string, ComponentProps<typeof Ionicons>['name']> = {
+  sleep:'moon-outline', nursing:'heart-outline', bottle:'water-outline', pumping:'sync-outline',
+  food:'restaurant-outline', water:'cafe-outline', diaper:'leaf-outline', potty:'happy-outline',
+  medicine:'medical-outline', temperature:'thermometer-outline', symptom:'pulse-outline', growth:'resize-outline',
+  bath:'boat-outline', teeth:'sparkles-outline', milestone:'star-outline', routine:'sunny-outline', custom:'create-outline',
 };
 export function localDateTime(value: string | Date = new Date()) {
   const date = new Date(value);

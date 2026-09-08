@@ -3,18 +3,18 @@ import { ReportExplorer } from '../src/components/ReportExplorer';
 import { File } from 'expo-file-system';
 import { DateField } from '../src/components/DateField';
 import { useState } from 'react';
-import { Platform, Share, View } from 'react-native';
+import { Platform, Share, View, useWindowDimensions } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useNest } from '../src/lib/store';
 import { exportCsv } from '../src/lib/report';
 import { localDay, makeReport, reportDisclaimer, reportHtml, reportSections, shiftDay, type CareReport, type ReportSection } from '../src/lib/report-model';
-import { Button, Card, Choice, ErrorMessage, Heading, Label, Page, Row, useTask } from '../src/components/ui';
+import { Button, Card, Choice, ErrorMessage, Heading, Label, Page, Row, Segmented, useTask } from '../src/components/ui';
 import { usePalette } from '../src/theme';
 
 export default function Reports() {
   const nest = useNest(); const snapshot = nest.snapshot!; const task = useTask(); const palette = usePalette();
-  const [view,setView]=useState('summary');
+  const [view,setView]=useState('summary');const mobile=useWindowDimensions().width<900;const [filters,setFilters]=useState(false);
   const [customize, setCustomize] = useState(false); const [chart, setChart] = useState('entries');
   const [child, setChild] = useState('all'); const [period, setPeriod] = useState('week');
   const today = localDay(Date.now(), snapshot.household.timezone);
@@ -39,7 +39,9 @@ export default function Reports() {
     }
   };
   return <Page title="Their story, recorded" subtitle="A clear picture of recorded care, ready for your next conversation." action={<Button title={task.pending ? 'Preparing report…' : 'Export pediatrician PDF'} disabled={task.pending || !report || !sections.length} onPress={() => void task.run(exportPdf)} />}>
-    <Card><Choice label="Child" value={child} options={[{ value: 'all', label: 'All children' }, ...snapshot.children.map(c => ({ value: c.id, label: c.firstName }))]} onChange={setChild} />
+    <Segmented label="Report view" value={view} options={[{value:"day",label:"Day"},{value:"week",label:"Week"},{value:"list",label:"List"},{value:"summary",label:"Summary"}]} onChange={setView}/>
+    {mobile&&<Row style={{justifyContent:"space-between"}}><Label muted>{child==='all'?'All children':snapshot.children.find(c=>c.id===child)?.firstName} · {from} – {through}</Label><Button title={filters?"Hide filters":"Report filters"} icon="filter-outline" variant="secondary" onPress={()=>setFilters(!filters)}/></Row>}
+    {(!mobile||filters)&&<Card><Choice label="Child" value={child} options={[{ value: 'all', label: 'All children' }, ...snapshot.children.map(c => ({ value: c.id, label: c.firstName }))]} onChange={setChild} />
       <Choice label="Period" value={period} options={[{ value: 'day', label: 'Today' }, { value: 'week', label: 'Last 7 days' }, { value: 'month', label: 'Last 30 days' }, { value: 'custom', label: 'Custom range' }]} onChange={value => { setPeriod(value); if (value !== 'custom') { setFrom(shiftDay(today, value === 'day' ? 0 : value === 'week' ? -6 : -29)); setThrough(today); } }} />
       {period === 'custom' && <Row><DateField label="From date" value={from} onChangeText={setFrom} hint="YYYY-MM-DD" /><DateField label="Through date" value={through} onChangeText={setThrough} hint="YYYY-MM-DD, inclusive" /></Row>}
       <Label muted>{from} through {through} · {snapshot.household.timezone}</Label>
@@ -47,8 +49,8 @@ export default function Reports() {
       <Choice label="Include private notes in PDF" value={notes} options={[{ value: 'no', label: 'Exclude notes' }, { value: 'yes', label: 'Include notes' }]} onChange={setNotes} />
       <Label muted>{reportDisclaimer}</Label></>}<ErrorMessage message={rangeError || task.error} />{feedback && <Label>{feedback}</Label>}
       {!!(nest.queue.length || nest.conflicts.length) && <Label>Includes local changes. Finish synchronization and resolve conflicts before sharing a final report.</Label>}
-    </Card>
-    <Card><Choice label="Report view" value={view} options={[{value:"summary",label:"Summary"},{value:"day",label:"Day"},{value:"week",label:"Week"},{value:"list",label:"List"}]} onChange={setView} /></Card>
+    </Card>}
+    {mobile&&!filters&&<><ErrorMessage message={rangeError||task.error}/>{feedback&&<Label>{feedback}</Label>}</>}
     {report && view!=='summary' && <ReportExplorer report={report} view={view} />}
     {view==='summary' && report?.children.map(({ child: c, summaries, days }) => <Card key={c.id}><Heading small>{c.firstName}</Heading>
       <Label muted>Shared sibling entries count once per child. Active sleep timers are excluded from duration.</Label>
