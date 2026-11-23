@@ -32,6 +32,7 @@ describe.skipIf(!url)('live household product integration', () => {
     const c = await register('caregiver@live.test'); caregiver = c.token; caregiverId = c.user.id;
     household = (await call('POST', '/households', owner, { name: 'Live family', timezone: 'America/Chicago' })).json().id;
     child = (await call('POST', path('children'), owner, { firstName: 'River', dateOfBirth: '2026-01-01' })).json().id;
+    await pool.query("UPDATE users SET verified_at=now() WHERE email='caregiver@live.test'");
     const invite = (await call('POST', path('invitations'), owner, { email: 'caregiver@live.test', role: 'caregiver' })).json();
     expect((await call('POST', '/invitations/accept', caregiver, { token: invite.token })).statusCode).toBe(200);
   });

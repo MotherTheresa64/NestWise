@@ -195,6 +195,8 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // Registration never proves mailbox ownership, so an invite email match is only trusted once the address is verified.
+      if (!(await client.query('SELECT 1 FROM users WHERE id=$1 AND verified_at IS NOT NULL', [user.id])).rowCount) fail(403, 'Verify your email address before accepting an invitation. Open Account > Account security, verify, then try again.');
       const invite = (await client.query('DELETE FROM invitations WHERE token_hash=$1 AND email=$2 AND expires_at>now() RETURNING *', [hash(token), user.email])).rows[0];
       if (!invite) fail(400, 'Invitation is invalid, expired, or addressed to another email.');
       await client.query('INSERT INTO members VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [invite.household_id, user.id, invite.role]);

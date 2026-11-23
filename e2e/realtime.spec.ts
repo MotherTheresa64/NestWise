@@ -1,6 +1,12 @@
 import { test, expect, type APIRequestContext, type WebSocketRoute } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 const API = 'http://localhost:3001';
+// The local API has no mail provider, so mark the invited address verified directly in its database (same .env the API uses).
+async function markVerified(userId: string) {
+  process.loadEnvFile('.env'); const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect(); try { await db.query('UPDATE users SET verified_at=now() WHERE id=$1', [userId]); } finally { await db.end(); }
+}
 async function post(request: APIRequestContext, path: string, token: string | undefined, data: unknown) {
   const response = await request.post(API + path, { headers: token ? { Authorization: `Bearer ${token}` } : {}, data });
   expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
@@ -13,6 +19,7 @@ test('push updates reach a second caregiver; stale modal edits conflict; child a
   const path = `/households/${household.id}`;
   const child = await post(request, path + '/children', owner.token, { firstName: 'Robin', dateOfBirth: '2026-01-01' });
   const invite = await post(request, path + '/invitations', owner.token, { email: caregiver.user.email, role: 'caregiver' });
+  await markVerified(caregiver.user.id);
   await post(request, '/invitations/accept', caregiver.token, { token: invite.token });
   const event = { id: randomUUID(), childIds: [child.id], category: 'bottle', occurredAt: new Date().toISOString(), details: { quantity: 120, unit: 'ml' }, notes: 'Initial log' };
   await post(request, path + '/sync', owner.token, [{ mutationId: randomUUID(), eventId: event.id, baseVersion: 0, operation: 'create', event }]);

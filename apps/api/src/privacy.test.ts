@@ -43,6 +43,7 @@ describe.skipIf(!url)('privacy isolation and destructive safeguards',()=>{
   const owner=await register('Continuing owner','continuing@privacy.test');const former=await register('Unique departed name','departed@privacy.test');
   const h=(await call('POST','/households',owner.token,{name:'Continuing family',timezone:'UTC'})).json();const path=`/households/${h.id}`;
   const invitation=(await call('POST',path+'/invitations',owner.token,{email:former.user.email,role:'caregiver'})).json();
+  await pool.query('UPDATE users SET verified_at=now() WHERE id=$1',[former.user.id]);
   expect((await call('POST','/invitations/accept',former.token,{token:invitation.token})).statusCode).toBe(200);
   const c=(await call('POST',path+'/children',owner.token,{firstName:'Child',dateOfBirth:'2026-01-01'})).json();
   const id=randomUUID();await call('POST',path+'/sync',former.token,[{mutationId:randomUUID(),eventId:id,baseVersion:0,operation:'create',event:{id,childIds:[c.id],category:'diaper',occurredAt:new Date().toISOString(),notes:'Shared care remains'}}]);

@@ -52,7 +52,12 @@ describe.skipIf(!url)('PostgreSQL API integration', () => {
   });
   it('binds invitations to emails, prevents reuse, and enforces viewer read-only access', async () => {
     const invite = (await call('POST', path('invitations'), owner, { email: 'other@example.test', role: 'viewer' })).json();
+    await pool.query("UPDATE users SET verified_at=now() WHERE email='owner@example.test'"); // wrong-email rejection must hold for verified users too
     expect((await call('POST', '/invitations/accept', owner, { token: invite.token })).statusCode).toBe(400);
+    const unverified = await call('POST', '/invitations/accept', outsider, { token: invite.token });
+    expect(unverified.statusCode).toBe(403); expect(unverified.json().error).toMatch(/verify your email/i);
+    expect((await call('GET', path('snapshot'), outsider)).statusCode).toBe(404);
+    await pool.query("UPDATE users SET verified_at=now() WHERE email='other@example.test'");
     expect((await call('POST', '/invitations/accept', outsider, { token: invite.token })).statusCode).toBe(200);
     expect((await call('POST', '/invitations/accept', outsider, { token: invite.token })).statusCode).toBe(400);
     expect((await call('GET', path('snapshot'), outsider)).statusCode).toBe(200);
