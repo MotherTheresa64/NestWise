@@ -42,3 +42,13 @@ it('parses explicit quick phrases without guessing medication or ambiguous times
   expect(parseLog('give medicine at 5')).toBeNull();
   expect(parseLog('bottle 120 ml yesterday')).toBeNull();
 });
+describe('sync mutations', () => {
+  it('rejects a delete whose event body names a different event', async () => {
+    const { mutationSchema } = await import('./index');
+    const mutationId = '33333333-3333-4333-8333-333333333333';
+    const ok = { mutationId, operation: 'delete', eventId: childId, baseVersion: 1 };
+    expect(mutationSchema.safeParse(ok).success).toBe(true);
+    expect(mutationSchema.safeParse({ ...ok, event: base }).success).toBe(true);
+    expect(mutationSchema.safeParse({ ...ok, event: { ...base, id: secondId } }).success).toBe(false);
+  });
+});

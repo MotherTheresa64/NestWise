@@ -203,9 +203,16 @@ export async function buildApi(pool: pg.Pool, options: { deliverAccountMail?: Ac
   });
   app.post('/households/:householdId/reminders', async request => {
     const { householdId } = await access(request, 'write'); const input = reminderInputSchema.parse(request.body);
-    await checkChildren(pool, householdId, input.childIds);
     const reminder = { ...input, id: randomUUID(), householdId, completedAt: null, version: 1 };
-    await pool.query('INSERT INTO reminders VALUES($1,$2,$3)', [reminder.id, householdId, reminder]); return reminder;
+    // Same household lock as child erase, so a reminder cannot be created for a child mid-erase.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM households WHERE id=$1 FOR UPDATE', [householdId]);
+      await checkChildren(client, householdId, input.childIds);
+      await client.query('INSERT INTO reminders VALUES($1,$2,$3)', [reminder.id, householdId, reminder]);
+      await client.query('COMMIT'); return reminder;
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   });
   app.post('/households/:householdId/reminders/:id/complete', async request => {
     const { householdId } = await access(request, 'write'); const { id } = z.object({ id: idSchema }).parse(request.params);

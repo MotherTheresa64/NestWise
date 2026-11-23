@@ -148,7 +148,8 @@ export const mutationSchema = z.object({
   baseVersion: z.number().int().min(0),
   event: eventInputSchema.optional()
 }).strict().superRefine((mutation, ctx) => {
-  if (mutation.operation !== 'delete' && (!mutation.event || mutation.event.id !== mutation.eventId)) {
+  // A delete may omit the event, but any event sent must be the one named by eventId.
+  if ((mutation.operation !== 'delete' && !mutation.event) || (mutation.event && mutation.event.id !== mutation.eventId)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['event'], message: 'Matching event is required' });
   }
 });
